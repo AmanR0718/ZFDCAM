@@ -1,69 +1,69 @@
-// frontend/src/pages/FarmerRegistration/Step5PhotoUpload.tsx
-import { useState } from 'react'
-import farmerService from '@/services/farmer.service'
+// src/pages/FarmerRegistration/Step5PhotoUpload.tsx
+import { useState } from "react";
+import { farmerService } from "@/services/farmer.service";
 
 interface Step5Props {
-  farmerId: string 
-  onNext: () => void
-  onBack: () => void
+  farmerId: string;
+  onNext: () => void;
+  onBack: () => void;
 }
 
 export default function Step5PhotoUpload({ farmerId, onNext, onBack }: Step5Props) {
-  const [photo, setPhoto] = useState<File | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploaded, setUploaded] = useState(false)
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploaded, setUploaded] = useState(false);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const file = e.target.files?.[0];
+    if (!file) return;
 
     // Validate file type
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file (JPG, PNG)')
-      return
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file (JPG, PNG)");
+      return;
     }
 
     // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      alert('File size must be less than 5MB')
-      return
+      alert("File size must be less than 5MB");
+      return;
     }
 
-    setPhoto(file)
-    
+    setPhoto(file);
+
     // Create preview
-    const reader = new FileReader()
+    const reader = new FileReader();
     reader.onloadend = () => {
-      setPreview(reader.result as string)
-    }
-    reader.readAsDataURL(file)
-  }
+      setPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleUpload = async () => {
     if (!photo) {
-      alert('Please select a photo first')
-      return
+      alert("Please select a photo first");
+      return;
     }
 
-    setUploading(true)
+    setUploading(true);
     try {
-      await farmerService.uploadPhoto(farmerId, photo)
-      setUploaded(true)
-      alert('✅ Photo uploaded successfully!')
+      await farmerService.uploadPhoto(farmerId, photo);
+      setUploaded(true);
+      alert("✅ Photo uploaded successfully!");
     } catch (error: any) {
-      console.error('Upload failed:', error)
-      alert(error.message || 'Failed to upload photo')
+      console.error("Upload failed:", error);
+      alert(error.message || "Failed to upload photo");
     } finally {
-      setUploading(false)
+      setUploading(false);
     }
-  }
+  };
 
   const handleSkip = () => {
-    if (confirm('Skip photo upload? You can add it later.')) {
-      onNext()
+    if (confirm("Skip photo upload? You can add it later.")) {
+      onNext();
     }
-  }
+  };
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -74,9 +74,9 @@ export default function Step5PhotoUpload({ farmerId, onNext, onBack }: Step5Prop
         <div className="mb-6">
           <div className="w-full h-80 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
             {preview ? (
-              <img 
-                src={preview} 
-                alt="Preview" 
+              <img
+                src={preview}
+                alt="Preview"
                 className="max-w-full max-h-full object-contain"
               />
             ) : (
@@ -97,18 +97,19 @@ export default function Step5PhotoUpload({ farmerId, onNext, onBack }: Step5Prop
               onChange={handleFileSelect}
               disabled={uploading || uploaded}
               className="hidden"
+              aria-label="Choose photo to upload"
             />
-            <div className={`text-center py-4 border-2 border-dashed rounded-lg cursor-pointer transition ${
-              uploaded 
-                ? 'bg-green-50 border-green-300 cursor-not-allowed' 
-                : 'hover:border-blue-500 hover:bg-blue-50'
-            }`}>
+            <div
+              className={`text-center py-4 border-2 border-dashed rounded-lg cursor-pointer transition ${
+                uploaded
+                  ? "bg-green-50 border-green-300 cursor-not-allowed"
+                  : "hover:border-blue-500 hover:bg-blue-50"
+              }`}
+            >
               {uploaded ? (
                 <span className="text-green-600 font-semibold">✓ Photo Uploaded</span>
               ) : (
-                <span className="text-gray-700">
-                  {photo ? '📷 Change Photo' : '📁 Choose Photo'}
-                </span>
+                <span className="text-gray-700">{photo ? "📷 Change Photo" : "📁 Choose Photo"}</span>
               )}
             </div>
           </label>
@@ -120,8 +121,9 @@ export default function Step5PhotoUpload({ farmerId, onNext, onBack }: Step5Prop
             onClick={handleUpload}
             disabled={uploading}
             className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed mb-4"
+            aria-label="Upload photo"
           >
-            {uploading ? '⏳ Uploading...' : '⬆️ Upload Photo'}
+            {uploading ? "⏳ Uploading..." : "⬆️ Upload Photo"}
           </button>
         )}
 
@@ -142,14 +144,16 @@ export default function Step5PhotoUpload({ farmerId, onNext, onBack }: Step5Prop
           <button
             onClick={onBack}
             className="flex-1 bg-gray-500 text-white py-3 rounded-lg hover:bg-gray-600"
+            aria-label="Back to previous step"
           >
             ← Back
           </button>
-          
+
           {uploaded ? (
             <button
               onClick={onNext}
               className="flex-1 bg-green-600 text-white py-3 rounded-lg hover:bg-green-700"
+              aria-label="Proceed to documents upload"
             >
               Next: Documents →
             </button>
@@ -157,6 +161,7 @@ export default function Step5PhotoUpload({ farmerId, onNext, onBack }: Step5Prop
             <button
               onClick={handleSkip}
               className="flex-1 bg-yellow-500 text-white py-3 rounded-lg hover:bg-yellow-600"
+              aria-label="Skip photo upload"
             >
               Skip for Now →
             </button>
@@ -164,5 +169,5 @@ export default function Step5PhotoUpload({ farmerId, onNext, onBack }: Step5Prop
         </div>
       </div>
     </div>
-  )
+  );
 }

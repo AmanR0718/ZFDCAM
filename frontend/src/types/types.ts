@@ -1,4 +1,4 @@
-// frontend/src/types/types.ts
+// src/types/types.ts
 
 export interface PersonalInfo {
   first_name: string;
@@ -7,8 +7,8 @@ export interface PersonalInfo {
   phone_secondary?: string;
   email?: string;
   nrc?: string;
-  date_of_birth?: string;
-  gender?: string;
+  date_of_birth?: string; // ISO Date string preferred
+  gender?: "Male" | "Female" | "Other"; // can be extended with enums
 }
 
 export interface Address {
@@ -45,6 +45,6 @@ export interface Farmer {
   address: Address;
   farm_info?: FarmInfo;
   household_info?: HouseholdInfo;
-  registration_status: string;
-  created_at: string;
+  registration_status: "Active" | "Pending" | "Inactive"; // enum for status
+  created_at: string; // ISO date string
 }

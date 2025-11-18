@@ -1,65 +1,80 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
-from app.database import get_database
-from app.utils.security import decode_token, hash_password
-from app.dependencies.roles import require_role
-from fastapi.responses import JSONResponse
-from fastapi import Request
+# backend/app/routes/users.py
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from app.database import get_db
+from app.dependencies.roles import require_admin
+from app.models.user import UserCreate, UserOut, UserRole
+from app.utils.security import hash_password
+from typing import Optional, List
+from datetime import datetime, timezone
 
-
-router = APIRouter(prefix="/api/users", tags=["Users"])
-
-
-async def get_current_user(authorization: str = Header(None)):
-    """Extract current user from JWT token"""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid token")
-
-    token = authorization.split(" ")[1]
-    try:
-        return decode_token(token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
+router = APIRouter(prefix="/users", tags=["Users"])
 
 
 # =======================================================
 # List Users (ADMIN only)
 # =======================================================
-@router.get("/", dependencies=[Depends(require_role(["ADMIN"]))])
-async def get_users(role: str | None = Query(None), db=Depends(get_database)):
-    """List users by optional role"""
+@router.get(
+    "/",
+    response_model=List[UserOut],
+    dependencies=[Depends(require_admin)],
+    summary="List users",
+    description="List all users or filter by role (ADMIN only)"
+)
+async def get_users(
+    role: Optional[str] = Query(None, description="Filter by user role"),
+    db = Depends(get_db)
+):
     query = {"roles": {"$in": [role]}} if role else {}
     users = await db.users.find(query).to_list(100)
-    for user in users:
-        user.pop("password_hash", None)
-        user["_id"] = str(user.get("_id"))
-    return {"count": len(users), "results": users}
+    results = [UserOut.from_mongo(u) for u in users if u]
+    return results
 
 
 # =======================================================
 # Create New User (ADMIN only)
 # =======================================================
-@router.post("/", dependencies=[Depends(require_role(["ADMIN"]))])
-async def create_user(user_data: dict, current_user = Depends(get_current_user)):
-    try:
-        from ..utils.security import hash_password
-        db = get_database()
-        existing = await db.users.find_one({"email": user_data.get("email")})
-        if existing:
-            raise HTTPException(status_code=400, detail="User already exists")
+@router.post(
+    "/",
+    response_model=UserOut,
+    dependencies=[Depends(require_admin)],
+    summary="Create new user",
+    description="Create a new user account (ADMIN only)"
+)
+async def create_user(
+    user_data: UserCreate,
+    db = Depends(get_db)
+):
+    email = user_data.email.lower().strip()
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
 
-        new_user = {
-            "email": user_data.get("email"),
-            "password_hash": hash_password(user_data.get("password", "defaultpassword")),
-            "roles": user_data.get("roles", []),
-            "is_active": True
-        }
+    password_hash = hash_password(user_data.password)
+    now = datetime.now(timezone.utc)
+    new_user_doc = {
+        "email": email,
+        "password_hash": password_hash,
+        "roles": [role.value for role in user_data.roles],
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now
+    }
+    result = await db.users.insert_one(new_user_doc)
+    new_user = await db.users.find_one({"_id": result.inserted_id})
+    return UserOut.from_mongo(new_user)
 
-        result = await db.users.insert_one(new_user)
-        new_user["_id"] = str(result.inserted_id)
-        new_user.pop("password_hash", None)
-        return new_user
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Internal Server Error: {str(e)}"}
-        )
+
+# =======================================================
+# Get Current User (self-view, any authenticated)
+# =======================================================
+@router.get(
+    "/me",
+    response_model=UserOut,
+    summary="Get current user",
+    description="Get authenticated user info"
+)
+async def get_me(current_user: dict = Depends(require_admin)):
+    """
+    Returns info about the currently authenticated admin user.
+    """
+    return UserOut.from_mongo(current_user)

@@ -1,17 +1,27 @@
-// frontend/src/pages/FarmerRegistrationWizard/Step2Address.tsx
+// src/pages/FarmerRegistrationWizard/Step2Address.tsx
 import React, { useEffect, useState } from "react";
 import geoService from "@/services/geo.service";
 
+type AddressData = {
+  province_code?: string;
+  province_name?: string;
+  district_code?: string;
+  district_name?: string;
+  chiefdom_code?: string;
+  chiefdom_name?: string;
+  village?: string;
+};
+
 type Props = {
-  data: any;
+  data: AddressData;
   onBack: () => void;
-  onNext: (values: any) => void;
+  onNext: (values: AddressData) => void;
 };
 
 export default function Step2Address({ data, onBack, onNext }: Props) {
-  const [provinces, setProvinces] = useState<any[]>([]);
-  const [districts, setDistricts] = useState<any[]>([]);
-  const [chiefdoms, setChiefdoms] = useState<any[]>([]);
+  const [provinces, setProvinces] = useState<{ code: string; name: string }[]>([]);
+  const [districts, setDistricts] = useState<{ code: string; name: string }[]>([]);
+  const [chiefdoms, setChiefdoms] = useState<{ code: string; name: string }[]>([]);
 
   const [provinceCode, setProvinceCode] = useState(data?.province_code || "");
   const [districtCode, setDistrictCode] = useState(data?.district_code || "");
@@ -21,17 +31,9 @@ export default function Step2Address({ data, onBack, onNext }: Props) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  // In Step2Address.tsx, update the useEffect for districts:
-useEffect(() => {
-  if (!provinceCode) {
-    setDistricts([]);
-    return;
-  }
-  geoService.districts(provinceCode) // Pass province_id as provinceCode
-    .then((d) => setDistricts(d || []))
-    .catch(() => setDistricts([]));
-}, [provinceCode]);
-
+  useEffect(() => {
+    geoService.provinces().then(setProvinces).catch(() => setProvinces([]));
+  }, []);
 
   useEffect(() => {
     if (!provinceCode) {
@@ -40,7 +42,13 @@ useEffect(() => {
       return;
     }
     setLoading(true);
-    geoService.districts(provinceCode).then((d) => { setDistricts(d || []); setLoading(false); }).catch(() => setLoading(false));
+    geoService
+      .districts(provinceCode)
+      .then((d) => {
+        setDistricts(d || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [provinceCode]);
 
   useEffect(() => {
@@ -50,7 +58,13 @@ useEffect(() => {
       return;
     }
     setLoading(true);
-    geoService.chiefdoms(districtCode).then((d) => { setChiefdoms(d || []); setLoading(false); }).catch(() => setLoading(false));
+    geoService
+      .chiefdoms(districtCode)
+      .then((d) => {
+        setChiefdoms(d || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [districtCode]);
 
   const handleNext = () => {
@@ -76,42 +90,101 @@ useEffect(() => {
 
   return (
     <div>
-      <h3>Address & location</h3>
-      {err && <div style={{ background: "#fee", color: "#900", padding: 10, borderRadius: 6 }}>{err}</div>}
+      <h3>Address & Location</h3>
+      {err && (
+        <div
+          role="alert"
+          style={{ background: "#fee", color: "#900", padding: 10, borderRadius: 6 }}
+        >
+          {err}
+        </div>
+      )}
 
       <div style={{ marginTop: 12 }}>
-        <label style={{ fontWeight: "bold" }}>Province *</label>
-        <select value={provinceCode} onChange={(e) => setProvinceCode(e.target.value)} style={{ width: "100%", padding: 10, marginTop: 6 }}>
+        <label htmlFor="province" style={{ fontWeight: "bold" }}>
+          Province *
+        </label>
+        <select
+          id="province"
+          value={provinceCode}
+          onChange={(e) => setProvinceCode(e.target.value)}
+          style={{ width: "100%", padding: 10, marginTop: 6 }}
+          aria-required="true"
+        >
           <option value="">-- choose province --</option>
-          {provinces.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
+          {provinces.map((p) => (
+            <option key={p.code} value={p.code}>
+              {p.name}
+            </option>
+          ))}
         </select>
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <label style={{ fontWeight: "bold" }}>District *</label>
-        <select value={districtCode} onChange={(e) => setDistrictCode(e.target.value)} style={{ width: "100%", padding: 10, marginTop: 6 }}>
+        <label htmlFor="district" style={{ fontWeight: "bold" }}>
+          District *
+        </label>
+        <select
+          id="district"
+          value={districtCode}
+          onChange={(e) => setDistrictCode(e.target.value)}
+          style={{ width: "100%", padding: 10, marginTop: 6 }}
+          aria-required="true"
+        >
           <option value="">-- choose district --</option>
-          {districts.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
+          {districts.map((d) => (
+            <option key={d.code} value={d.code}>
+              {d.name}
+            </option>
+          ))}
         </select>
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <label style={{ fontWeight: "bold" }}>Chiefdom</label>
-        <select value={chiefdomCode} onChange={(e) => setChiefdomCode(e.target.value)} style={{ width: "100%", padding: 10, marginTop: 6 }}>
+        <label htmlFor="chiefdom" style={{ fontWeight: "bold" }}>
+          Chiefdom
+        </label>
+        <select
+          id="chiefdom"
+          value={chiefdomCode}
+          onChange={(e) => setChiefdomCode(e.target.value)}
+          style={{ width: "100%", padding: 10, marginTop: 6 }}
+        >
           <option value="">-- choose chiefdom (optional) --</option>
-          {chiefdoms.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+          {chiefdoms.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.name}
+            </option>
+          ))}
         </select>
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <label style={{ fontWeight: "bold" }}>Village / locality</label>
-        <input value={village} onChange={(e) => setVillage(e.target.value)} style={{ width: "100%", padding: 10, marginTop: 6 }} />
+        <label htmlFor="village" style={{ fontWeight: "bold" }}>
+          Village / Locality
+        </label>
+        <input
+          id="village"
+          value={village}
+          onChange={(e) => setVillage(e.target.value)}
+          style={{ width: "100%", padding: 10, marginTop: 6 }}
+        />
       </div>
 
       <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-        <button onClick={onBack} style={{ padding: 12, background: "#6B7280", color: "white", border: "none", borderRadius: 6 }}>← Back</button>
+        <button
+          onClick={onBack}
+          style={{ padding: 12, background: "#6B7280", color: "white", border: "none", borderRadius: 6 }}
+          aria-label="Back to previous step"
+        >
+          ← Back
+        </button>
         <div style={{ flex: 1 }} />
-        <button onClick={handleNext} style={{ padding: 12, background: "#2563EB", color: "white", border: "none", borderRadius: 6 }}>
+        <button
+          onClick={handleNext}
+          style={{ padding: 12, background: "#2563EB", color: "white", border: "none", borderRadius: 6 }}
+          aria-label="Next step"
+        >
           Next →
         </button>
       </div>

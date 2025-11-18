@@ -1,6 +1,0 @@
-backend/app/routes/farmers_qr.py
-backend/app/routes/health.py
-backend/app/routes/uploads.py
-backend/app/routes/sync.py
-backend/app/routes/farmers.py
-backend/app/routes/auth.py

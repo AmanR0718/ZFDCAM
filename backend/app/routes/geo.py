@@ -1,112 +1,563 @@
-from bson import ObjectId
-from fastapi import APIRouter, Depends, Query, HTTPException
-from typing import Optional, List, Dict, Any
-from app.database import get_database
-from bson.regex import Regex
-import math
+# backend/app/routes/geo.py
+"""
+Geographic data endpoints for Zambian administrative divisions.
 
+Collections:
+- provinces: Top-level administrative divisions
+- districts: Districts within provinces
+- chiefdoms: Traditional authority areas within districts
+
+Hierarchy: Province → District → Chiefdom
+"""
+
+from fastapi import APIRouter, Depends, Query, HTTPException, status
+from typing import Optional, List
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pydantic import BaseModel, Field, ConfigDict
+from functools import lru_cache
+import logging
+
+from app.database import get_db
+
+
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Geographic Data"])
 
-def is_valid_number(value):
-    """Check if a number is JSON-serializable (not NaN or Infinity)"""
-    if isinstance(value, (int, float)):
-        return math.isfinite(value)
-    return True
 
-def serialize_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
+# =======================================================
+# Pydantic Models
+# =======================================================
+class Province(BaseModel):
+    """Province model"""
+    province_code: str = Field(..., description="Province code (e.g., LP)")
+    province_name: str = Field(..., description="Province name")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "province_code": "LP",
+                "province_name": "Luapula Province"
+            }
+        }
+    )
+
+
+class District(BaseModel):
+    """District model"""
+    district_code: str = Field(..., description="District code (e.g., LP05)")
+    district_name: str = Field(..., description="District name")
+    province_code: str = Field(..., description="Parent province code")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "district_code": "LP05",
+                "district_name": "Kawambwa District",
+                "province_code": "LP"
+            }
+        }
+    )
+
+
+class Chiefdom(BaseModel):
+    """Chiefdom/Traditional Authority model"""
+    chiefdom_code: str = Field(..., description="Chiefdom code (e.g., LP05-002)")
+    chiefdom_name: str = Field(..., description="Chiefdom/Chief name")
+    district_code: str = Field(..., description="Parent district code")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "chiefdom_code": "LP05-002",
+                "chiefdom_name": "Chief Chama",
+                "district_code": "LP05"
+            }
+        }
+    )
+
+
+# =======================================================
+# Helper Functions
+# =======================================================
+def serialize_geo_doc(doc: dict, exclude_id: bool = True) -> dict:
     """
-    Recursively convert MongoDB documents to JSON-serializable format.
-    Handles ObjectId, datetime, NaN, Infinity, and other BSON types.
+    Serialize MongoDB geographic document to JSON-safe dict.
+    
+    Args:
+        doc: MongoDB document
+        exclude_id: Whether to exclude _id field
+    
+    Returns:
+        dict: Serialized document
     """
-    if doc is None:
+    if not doc:
         return None
     
     result = {}
     for key, value in doc.items():
-        if isinstance(value, ObjectId):
+        if exclude_id and key == "_id":
+            continue
+        
+        # Handle ObjectId
+        if hasattr(value, '__class__') and value.__class__.__name__ == 'ObjectId':
             result[key] = str(value)
-        elif isinstance(value, float):
-            # Handle NaN and Infinity
-            if math.isnan(value):
-                result[key] = None
-            elif math.isinf(value):
-                result[key] = None
-            else:
-                result[key] = value
-        elif isinstance(value, dict):
-            result[key] = serialize_doc(value)
-        elif isinstance(value, list):
-            result[key] = [serialize_doc(item) if isinstance(item, dict) else 
-                          (str(item) if isinstance(item, ObjectId) else 
-                          (None if isinstance(item, float) and not math.isfinite(item) else item))
-                          for item in value]
         else:
             result[key] = value
+    
     return result
 
-@router.get("/provinces")
-async def list_provinces(db=Depends(get_database)):
-    """Get all provinces"""
+
+# =======================================================
+# PROVINCES Endpoints
+# =======================================================
+@router.get(
+    "/provinces",
+    response_model=List[Province],
+    summary="List all provinces",
+    description="Get all Zambian provinces"
+)
+async def list_provinces(
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """
+    Get list of all Zambian provinces.
+    
+    **Returns:** List of provinces sorted by name
+    
+    **Example Response:**
+    ```
+    [
+        {
+            "province_code": "LP",
+            "province_name": "Luapula Province"
+        },
+        {
+            "province_code": "CP",
+            "province_name": "Central Province"
+        }
+    ]
+    ```
+    """
     try:
-        cursor = db.provinces.find({})
+        # Query provinces, sorted by name
+        cursor = db.provinces.find({}).sort("province_name", 1)
         provinces = await cursor.to_list(length=100)
         
         if not provinces:
-            raise HTTPException(status_code=404, detail="No provinces found")
+            logger.warning("No provinces found in database")
+            return []
         
-        return [serialize_doc({k: v for k, v in p.items() if k != '_id'}) for p in provinces]
+        # Serialize and return
+        result = [serialize_geo_doc(p) for p in provinces]
+        logger.info(f"Retrieved {len(result)} provinces")
+        
+        return result
+        
     except Exception as e:
-        print(f"Error in list_provinces: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error retrieving provinces: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve provinces: {str(e)}"
+        )
 
-@router.get("/districts")
-async def list_districts(province_id: Optional[str] = Query(None), db=Depends(get_database)):
-    """Get districts, optionally filtered by province_id"""
+
+@router.get(
+    "/provinces/{province_code}",
+    response_model=Province,
+    summary="Get province by code",
+    description="Get specific province details"
+)
+async def get_province(
+    province_code: str,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """
+    Get province by province code.
+    
+    **Path Parameters:**
+    - `province_code`: Province code (e.g., "LP")
+    
+    **Example Response:**
+    ```
+    {
+        "province_code": "LP",
+        "province_name": "Luapula Province"
+    }
+    ```
+    """
     try:
-        query = {"province_id": province_id} if province_id else {}
-        cursor = db.districts.find(query)
+        province = await db.provinces.find_one({
+            "province_code": province_code.upper()
+        })
+        
+        if not province:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Province {province_code} not found"
+            )
+        
+        return serialize_geo_doc(province)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving province {province_code}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve province: {str(e)}"
+        )
+
+
+# =======================================================
+# DISTRICTS Endpoints
+# =======================================================
+@router.get(
+    "/districts",
+    response_model=List[District],
+    summary="List districts",
+    description="Get districts, optionally filtered by province"
+)
+async def list_districts(
+    province_code: Optional[str] = Query(
+        None,
+        description="Filter by province code (e.g., LP)"
+    ),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """
+    Get list of districts with optional province filter.
+    
+    **Query Parameters:**
+    - `province_code`: Optional filter by province (e.g., "LP")
+    
+    **Example:**
+    ```
+    GET /api/geo/districts?province_code=LP
+    ```
+    
+    **Example Response:**
+    ```
+    [
+        {
+            "district_code": "LP05",
+            "district_name": "Kawambwa District",
+            "province_code": "LP"
+        },
+        {
+            "district_code": "LP06",
+            "district_name": "Mansa District",
+            "province_code": "LP"
+        }
+    ]
+    ```
+    """
+    try:
+        # Build query
+        query = {}
+        if province_code:
+            query["province_code"] = province_code.upper()
+        
+        # Execute query, sorted by name
+        cursor = db.districts.find(query).sort("district_name", 1)
         districts = await cursor.to_list(length=500)
         
         if not districts:
-            raise HTTPException(status_code=404, detail="No districts found")
-        
-        return [serialize_doc({k: v for k, v in d.items() if k != '_id'}) for d in districts]
-    except Exception as e:
-        print(f"Error in list_districts: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/chiefdoms")
-async def list_chiefdoms(district_id: Optional[str] = Query(None), db=Depends(get_database)):
-    """Get chiefdoms, optionally filtered by district_id"""
-    try:
-        # Case-insensitive match on district_id
-        query = {"district_id": Regex(f"^{district_id}$", "i")} if district_id else {}
-        
-        cursor = db.chiefdoms.find(query)
-        chiefdoms = await cursor.to_list(length=2000)
-        
-        # Return empty list if no chiefdoms found
-        if not chiefdoms:
+            logger.warning(f"No districts found for query: {query}")
             return []
         
-        # Process chiefdoms
+        # Serialize and return
+        result = [serialize_geo_doc(d) for d in districts]
+        logger.info(f"Retrieved {len(result)} districts")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error retrieving districts: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve districts: {str(e)}"
+        )
+
+
+@router.get(
+    "/districts/{district_code}",
+    response_model=District,
+    summary="Get district by code",
+    description="Get specific district details"
+)
+async def get_district(
+    district_code: str,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """
+    Get district by district code.
+    
+    **Path Parameters:**
+    - `district_code`: District code (e.g., "LP05")
+    
+    **Example Response:**
+    ```
+    {
+        "district_code": "LP05",
+        "district_name": "Kawambwa District",
+        "province_code": "LP"
+    }
+    ```
+    """
+    try:
+        district = await db.districts.find_one({
+            "district_code": district_code.upper()
+        })
+        
+        if not district:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"District {district_code} not found"
+            )
+        
+        return serialize_geo_doc(district)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving district {district_code}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve district: {str(e)}"
+        )
+
+
+# =======================================================
+# CHIEFDOMS Endpoints
+# =======================================================
+@router.get(
+    "/chiefdoms",
+    response_model=List[Chiefdom],
+    summary="List chiefdoms",
+    description="Get chiefdoms, optionally filtered by district"
+)
+async def list_chiefdoms(
+    district_code: Optional[str] = Query(
+        None,
+        description="Filter by district code (e.g., LP05)"
+    ),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """
+    Get list of chiefdoms with optional district filter.
+    
+    **Query Parameters:**
+    - `district_code`: Optional filter by district (e.g., "LP05")
+    
+    **Example:**
+    ```
+    GET /api/geo/chiefdoms?district_code=LP05
+    ```
+    
+    **Example Response:**
+    ```
+    [
+        {
+            "chiefdom_code": "LP05-002",
+            "chiefdom_name": "Chief Chama",
+            "district_code": "LP05"
+        },
+        {
+            "chiefdom_code": "LP05-003",
+            "chiefdom_name": "Chief Nkuba",
+            "district_code": "LP05"
+        }
+    ]
+    ```
+    """
+    try:
+        # Build query (case-insensitive)
+        query = {}
+        if district_code:
+            # Case-insensitive match
+            query["district_code"] = {
+                "$regex": f"^{district_code}$",
+                "$options": "i"
+            }
+        
+        # Execute query, sorted by name
+        cursor = db.chiefdoms.find(query).sort("chiefdom_name", 1)
+        chiefdoms = await cursor.to_list(length=2000)
+        
+        if not chiefdoms:
+            logger.warning(f"No chiefdoms found for query: {query}")
+            return []
+        
+        # Serialize and normalize field names
         result = []
         for c in chiefdoms:
             try:
-                doc = {k: v for k, v in c.items() if k != '_id'}
+                doc = serialize_geo_doc(c)
                 
-                # Ensure chiefdom_name exists
+                # Normalize chiefdom_name (handle legacy "chief_name" field)
                 if "chiefdom_name" not in doc and "chief_name" in doc:
-                    doc["chiefdom_name"] = doc["chief_name"]
+                    doc["chiefdom_name"] = doc.pop("chief_name")
                 
-                # Serialize and validate
-                serialized = serialize_doc(doc)
-                result.append(serialized)
+                result.append(doc)
+                
             except Exception as e:
-                print(f"Error processing chiefdom {c.get('chiefdom_id', 'unknown')}: {e}")
+                logger.warning(f"Error processing chiefdom {c.get('chiefdom_code', 'unknown')}: {e}")
                 continue
         
+        logger.info(f"Retrieved {len(result)} chiefdoms")
         return result
+        
     except Exception as e:
-        print(f"Error in list_chiefdoms: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error retrieving chiefdoms: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve chiefdoms: {str(e)}"
+        )
+
+
+@router.get(
+    "/chiefdoms/{chiefdom_code}",
+    response_model=Chiefdom,
+    summary="Get chiefdom by code",
+    description="Get specific chiefdom details"
+)
+async def get_chiefdom(
+    chiefdom_code: str,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """
+    Get chiefdom by chiefdom code.
+    
+    **Path Parameters:**
+    - `chiefdom_code`: Chiefdom code (e.g., "LP05-002")
+    
+    **Example Response:**
+    ```
+    {
+        "chiefdom_code": "LP05-002",
+        "chiefdom_name": "Chief Chama",
+        "district_code": "LP05"
+    }
+    ```
+    """
+    try:
+        chiefdom = await db.chiefdoms.find_one({
+            "chiefdom_code": chiefdom_code.upper()
+        })
+        
+        if not chiefdom:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Chiefdom {chiefdom_code} not found"
+            )
+        
+        doc = serialize_geo_doc(chiefdom)
+        
+        # Normalize field name
+        if "chiefdom_name" not in doc and "chief_name" in doc:
+            doc["chiefdom_name"] = doc.pop("chief_name")
+        
+        return doc
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving chiefdom {chiefdom_code}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve chiefdom: {str(e)}"
+        )
+
+
+# =======================================================
+# Hierarchical Lookup
+# =======================================================
+@router.get(
+    "/hierarchy",
+    summary="Get geographic hierarchy",
+    description="Get complete province → district → chiefdom hierarchy"
+)
+async def get_geo_hierarchy(
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """
+    Get complete geographic hierarchy for form dropdowns.
+    
+    **Use Case:** Frontend forms with cascading dropdowns
+    
+    **Example Response:**
+    ```
+    {
+        "provinces": [
+            {
+                "province_code": "LP",
+                "province_name": "Luapula Province",
+                "districts": [
+                    {
+                        "district_code": "LP05",
+                        "district_name": "Kawambwa District",
+                        "chiefdoms": [
+                            {
+                                "chiefdom_code": "LP05-002",
+                                "chiefdom_name": "Chief Chama"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+    ```
+    """
+    try:
+        # Fetch all data
+        provinces = await db.provinces.find({}).sort("province_name", 1).to_list(100)
+        districts = await db.districts.find({}).sort("district_name", 1).to_list(500)
+        chiefdoms = await db.chiefdoms.find({}).sort("chiefdom_name", 1).to_list(2000)
+        
+        # Build hierarchy
+        hierarchy = []
+        
+        for province in provinces:
+            province_code = province["province_code"]
+            
+            # Get districts for this province
+            province_districts = [
+                d for d in districts 
+                if d.get("province_code") == province_code
+            ]
+            
+            # For each district, get chiefdoms
+            districts_with_chiefdoms = []
+            for district in province_districts:
+                district_code = district["district_code"]
+                
+                district_chiefdoms = [
+                    serialize_geo_doc(c)
+                    for c in chiefdoms
+                    if c.get("district_code", "").upper() == district_code.upper()
+                ]
+                
+                # Normalize chiefdom names
+                for chief in district_chiefdoms:
+                    if "chiefdom_name" not in chief and "chief_name" in chief:
+                        chief["chiefdom_name"] = chief.pop("chief_name")
+                
+                districts_with_chiefdoms.append({
+                    **serialize_geo_doc(district),
+                    "chiefdoms": district_chiefdoms
+                })
+            
+            hierarchy.append({
+                **serialize_geo_doc(province),
+                "districts": districts_with_chiefdoms
+            })
+        
+        return {"provinces": hierarchy}
+        
+    except Exception as e:
+        logger.error(f"Error building geographic hierarchy: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to build hierarchy: {str(e)}"
+        )

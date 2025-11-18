@@ -1,8 +1,9 @@
+// src/store/authStore.ts
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { authService } from "@/services/auth.service";
 
-interface AuthState {
+export interface AuthState {
   user: any | null;
   token: string | null;
   refreshToken: string | null;
@@ -10,7 +11,7 @@ interface AuthState {
   role: string | null;
   isLoading: boolean;
   error: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   loadUser: () => Promise<void>;
   refreshAccessToken: () => Promise<string | null>;
@@ -28,16 +29,15 @@ const useAuthStore = create<AuthState>()(
       isLoading: false,
       error: null,
 
-      login: async (username: string, password: string) => {
+      // ---------- FIXED LOGIN ----------
+      login: async (email: string, password: string) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await authService.login(username, password);
+          const response = await authService.login(email, password);
 
-          // Normalize roles
-          const userRoles = response.user.roles || [];
+          const userRoles = response.user?.roles || [];
           const primaryRole = userRoles.length > 0 ? userRoles[0] : null;
 
-          // Save tokens
           localStorage.setItem("token", response.access_token);
           if (response.refresh_token) {
             localStorage.setItem("refresh_token", response.refresh_token);
@@ -50,13 +50,23 @@ const useAuthStore = create<AuthState>()(
             roles: userRoles,
             role: primaryRole,
             isLoading: false,
+            error: null,
           });
         } catch (error: any) {
-          const message =
-            error.response?.data?.detail ||
-            error.message ||
-            "Login failed. Please try again.";
-          set({ error: message, isLoading: false });
+          let message = "Login failed. Please try again.";
+
+          const detail = error?.response?.data?.detail;
+          if (Array.isArray(detail)) {
+            message = detail[0]?.msg || message;
+          } else if (typeof detail === "string") {
+            message = detail;
+          }
+
+          set({
+            error: message,
+            isLoading: false,
+          });
+
           throw error;
         }
       },
@@ -69,8 +79,8 @@ const useAuthStore = create<AuthState>()(
           refreshToken: null,
           roles: [],
           role: null,
+          error: null,
         });
-        // Clear persisted data
         localStorage.removeItem("token");
         localStorage.removeItem("refresh_token");
         sessionStorage.clear();
@@ -83,16 +93,18 @@ const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           const user = await authService.getCurrentUser();
-          const userRoles = user.roles || [];
+          const userRoles = user?.roles || [];
+
           set({
             user,
             roles: userRoles,
             role: userRoles[0] || null,
             token,
             isLoading: false,
+            error: null,
           });
-        } catch (error) {
-          set({ isLoading: false });
+        } catch {
+          set({ isLoading: false, error: "Failed to load user." });
           localStorage.removeItem("token");
         }
       },
@@ -101,6 +113,7 @@ const useAuthStore = create<AuthState>()(
         const refreshToken =
           localStorage.getItem("refresh_token") || get().refreshToken;
         if (!refreshToken) return null;
+
         try {
           const newToken = await authService.refresh(refreshToken);
           if (newToken) {

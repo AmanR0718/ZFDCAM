@@ -1,24 +1,25 @@
 # backend/app/routes/operators.py
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, EmailStr, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from uuid import uuid4
-from datetime import datetime
-from app.database import get_database
-from app.dependencies.roles import require_role
+from datetime import datetime, timezone
+from app.database import get_db
+from app.dependencies.roles import require_role, require_admin, get_current_user
 from app.utils.security import hash_password
+from app.models.user import UserRole
 
-router = APIRouter(prefix="/api/operators", tags=["Operators"])
+router = APIRouter(prefix="/operators", tags=["Operators"])
 
 
 # ---------------------------
-# Pydantic schemas (local)
+# Pydantic schemas
 # ---------------------------
 class OperatorCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(..., example="Alice Tembo")
     phone: Optional[str] = Field(None, example="+260971234567")
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8)
     assigned_regions: Optional[List[str]] = Field(default_factory=list)
     assigned_districts: Optional[List[str]] = Field(default_factory=list)
 
@@ -44,78 +45,72 @@ class OperatorOut(BaseModel):
 
 
 # ---------------------------
-# Helpers
+# Helper functions
 # ---------------------------
-def _doc_to_operator(doc: dict) -> dict:
+def _doc_to_operator(doc: dict) -> Dict[str, Any]:
     if not doc:
         return {}
     doc = dict(doc)
-    # Remove internal fields if present
     doc.pop("_id", None)
     return doc
 
 
 async def _get_operator_stats(operator_id: str, db):
-    """
-    Return quick stats for an operator:
-      - number of farmers created by this operator
-      - total land (if available)
-      - recent registrations (30 days)
-    """
+    """Quick stats for an operator."""
     farmer_count = await db.farmers.count_documents({"created_by": operator_id})
     from datetime import timedelta
-    recent_cutoff = datetime.utcnow() - timedelta(days=30)
+    recent_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     recent_count = await db.farmers.count_documents(
         {"created_by": operator_id, "created_at": {"$gte": recent_cutoff}}
     )
-
-    # aggregate total land holding if field exists
     pipeline = [
         {"$match": {"created_by": operator_id}},
         {
             "$group": {
                 "_id": None,
-                "total_land": {"$sum": {"$ifNull": ["$total_land_holding", 0]}},
-                "avg_land": {"$avg": {"$ifNull": ["$total_land_holding", 0]}},
+                "total_land": {"$sum": {"$ifNull": ["$farm_info.farm_size_hectares", 0]}},
+                "avg_land": {"$avg": {"$ifNull": ["$farm_info.farm_size_hectares", 0]}},
             }
         },
     ]
     agg = await db.farmers.aggregate(pipeline).to_list(length=1)
     total_land = agg[0]["total_land"] if agg else 0
     avg_land = agg[0]["avg_land"] if agg else 0
-
     return {
         "farmer_count": farmer_count,
         "recent_registrations_30d": recent_count,
-        "total_land": total_land,
-        "avg_land": avg_land,
+        "total_land_hectares": total_land,
+        "avg_land_hectares": avg_land,
     }
 
 
 # ---------------------------
 # Routes
 # ---------------------------
-
-@router.post("/", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role(["ADMIN"]))])
-async def create_operator(payload: OperatorCreate, db=Depends(get_database)):
-    """
-    Create a new operator (Admin only).
-    This creates both an entry in `users` and an `operators` document.
-    """
+@router.post(
+    "/",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+    summary="Create operator",
+    description="Admin only. Creates user and operator profile."
+)
+async def create_operator(payload: OperatorCreate, db=Depends(get_db)):
     email = payload.email.lower().strip()
 
-    # check if user exists
+    # Check if user exists
     existing = await db.users.find_one({"email": email})
     if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    # create user record
+    # Create user record
+    now = datetime.now(timezone.utc)
     user_doc = {
         "email": email,
         "password_hash": hash_password(payload.password),
-        "roles": ["OPERATOR"],
+        "roles": [UserRole.OPERATOR.value],
         "is_active": True,
-        "created_at": datetime.utcnow(),
+        "created_at": now,
+        "updated_at": now,
     }
     user_res = await db.users.insert_one(user_doc)
     user_id = str(user_res.inserted_id)
@@ -130,10 +125,9 @@ async def create_operator(payload: OperatorCreate, db=Depends(get_database)):
         "assigned_regions": payload.assigned_regions or [],
         "assigned_districts": payload.assigned_districts or [],
         "is_active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": now,
+        "updated_at": now,
     }
-
     await db.operators.insert_one(operator_doc)
 
     out = OperatorOut(
@@ -144,24 +138,25 @@ async def create_operator(payload: OperatorCreate, db=Depends(get_database)):
         assigned_regions=operator_doc["assigned_regions"],
         assigned_districts=operator_doc["assigned_districts"],
         is_active=True,
-        created_at=operator_doc["created_at"],
+        created_at=now,
         farmer_count=0,
     )
     return {"message": "Operator created", "operator": out.dict()}
 
 
-@router.get("/", dependencies=[Depends(require_role(["ADMIN"]))])
+@router.get(
+    "/",
+    dependencies=[Depends(require_admin)],
+    summary="List operators",
+    description="Admin only. List operator profiles, with per-operator stats."
+)
 async def list_operators(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
     region: Optional[str] = None,
     is_active: Optional[bool] = None,
-    db=Depends(get_database),
+    db=Depends(get_db),
 ):
-    """
-    List operators (Admin only). Optional filters: region, is_active.
-    Returns operator list with basic stats (farmer_count).
-    """
     query = {}
     if region:
         query["assigned_regions"] = region
@@ -181,9 +176,13 @@ async def list_operators(
     return {"count": len(results), "results": results}
 
 
-@router.get("/{operator_id}", dependencies=[Depends(require_role(["ADMIN", "OPERATOR"]))])
-async def get_operator(operator_id: str, db=Depends(get_database)):
-    """Get single operator by operator_id"""
+@router.get(
+    "/{operator_id}",
+    dependencies=[Depends(require_role([UserRole.ADMIN.value, UserRole.OPERATOR.value]))],
+    summary="Get operator",
+    description="Get details and stats of specific operator."
+)
+async def get_operator(operator_id: str, db=Depends(get_db)):
     op = await db.operators.find_one({"operator_id": operator_id})
     if not op:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operator not found")
@@ -193,12 +192,13 @@ async def get_operator(operator_id: str, db=Depends(get_database)):
     return op_doc
 
 
-@router.put("/{operator_id}", dependencies=[Depends(require_role(["ADMIN"]))])
-async def update_operator(operator_id: str, payload: OperatorUpdate, db=Depends(get_database)):
-    """
-    Update operator details (Admin only).
-    If is_active set to False, also deactivate corresponding user.
-    """
+@router.put(
+    "/{operator_id}",
+    dependencies=[Depends(require_admin)],
+    summary="Update operator",
+    description="Admin only. Update operator details or deactivate."
+)
+async def update_operator(operator_id: str, payload: OperatorUpdate, db=Depends(get_db)):
     op = await db.operators.find_one({"operator_id": operator_id})
     if not op:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operator not found")
@@ -207,7 +207,7 @@ async def update_operator(operator_id: str, payload: OperatorUpdate, db=Depends(
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
 
-    update_data["updated_at"] = datetime.utcnow()
+    update_data["updated_at"] = datetime.now(timezone.utc)
     await db.operators.update_one({"operator_id": operator_id}, {"$set": update_data})
 
     # If disabling operator, disable user as well
@@ -218,9 +218,13 @@ async def update_operator(operator_id: str, payload: OperatorUpdate, db=Depends(
     return _doc_to_operator(updated)
 
 
-@router.delete("/{operator_id}", dependencies=[Depends(require_role(["ADMIN"]))])
-async def delete_operator(operator_id: str, db=Depends(get_database)):
-    """Delete operator only if no farmers assigned"""
+@router.delete(
+    "/{operator_id}",
+    dependencies=[Depends(require_admin)],
+    summary="Delete operator",
+    description="Admin only. Only allowed if operator has no assigned farmers."
+)
+async def delete_operator(operator_id: str, db=Depends(get_db)):
     op = await db.operators.find_one({"operator_id": operator_id})
     if not op:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operator not found")
@@ -232,27 +236,37 @@ async def delete_operator(operator_id: str, db=Depends(get_database)):
             detail=f"Cannot delete operator with {farmer_count} assigned farmers",
         )
 
-    # delete operator and corresponding user record
     await db.operators.delete_one({"operator_id": operator_id})
     await db.users.delete_one({"_id": op["user_id"]})
-
     return {"message": "Operator deleted"}
 
 
-@router.get("/{operator_id}/farmers", dependencies=[Depends(require_role(["ADMIN", "OPERATOR"]))])
-async def get_operator_farmers(operator_id: str, skip: int = 0, limit: int = 50, db=Depends(get_database)):
-    """Get farmers created/managed by an operator"""
+@router.get(
+    "/{operator_id}/farmers",
+    dependencies=[Depends(require_role([UserRole.ADMIN.value, UserRole.OPERATOR.value]))],
+    summary="List operator's farmers",
+    description="Get farmers created by this operator."
+)
+async def get_operator_farmers(
+    operator_id: str,
+    skip: int = 0,
+    limit: int = 50,
+    db=Depends(get_db)
+):
     cursor = db.farmers.find({"created_by": operator_id}).skip(skip).limit(limit)
     farmers = await cursor.to_list(length=limit)
-    # sanitize farmer docs
     for f in farmers:
         f.pop("_id", None)
     return {"count": len(farmers), "results": farmers}
 
 
-@router.get("/{operator_id}/stats", dependencies=[Depends(require_role(["ADMIN"]))])
-async def operator_statistics(operator_id: str, db=Depends(get_database)):
-    """Return aggregated statistics for the operator"""
+@router.get(
+    "/{operator_id}/stats",
+    dependencies=[Depends(require_admin)],
+    summary="Get operator statistics",
+    description="Admin only. Returns aggregated statistics for this operator."
+)
+async def operator_statistics(operator_id: str, db=Depends(get_db)):
     op = await db.operators.find_one({"operator_id": operator_id})
     if not op:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operator not found")

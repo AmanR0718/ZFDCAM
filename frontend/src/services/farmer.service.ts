@@ -1,3 +1,4 @@
+// src/services/farmer.service.ts
 import axiosClient from "@/utils/axios";
 
 export const farmerService = {
@@ -6,9 +7,7 @@ export const farmerService = {
    * Backend: GET /api/farmers?limit=10&skip=0
    */
   async getFarmers(limit = 10, skip = 0) {
-    const { data } = await axiosClient.get("/farmers/", {
-      params: { limit, skip },
-    });
+    const { data } = await axiosClient.get("/farmers/", { params: { limit, skip } });
     return data;
   },
 
@@ -55,9 +54,7 @@ export const farmerService = {
    */
   async generateIDCard(farmerId: string) {
     if (!farmerId) throw new Error("Missing farmerId");
-    const { data } = await axiosClient.post(
-      `/farmers/${farmerId}/generate-idcard`
-    );
+    const { data } = await axiosClient.post(`/farmers/${farmerId}/generate-idcard`);
     return data;
   },
 
@@ -71,7 +68,7 @@ export const farmerService = {
       `/farmers/${farmerId}/download-idcard`,
       { responseType: "blob" }
     );
-    return response.data; // <-- this is the PDF blob
+    return response.data; // The PDF blob
   },
 
   /**

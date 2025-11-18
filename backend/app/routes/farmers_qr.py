@@ -1,19 +1,19 @@
+# backend/app/routes/farmers_qr.py
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from app.utils.security import verify_qr_signature
-from app.database import get_database
+from app.database import get_db
 from app.dependencies.roles import require_role
+from typing import Dict
+
 import os
 
-router = APIRouter(prefix="/api/farmers", tags=["Farmers QR & ID"])
+router = APIRouter(prefix="/farmers", tags=["Farmers QR & ID"])
 
-# ✅ Verify QR authenticity
+
 @router.post("/verify-qr")
-async def verify_qr(payload: dict, db=Depends(get_database)):
-    """
-    Verify a QR payload signed with server secret.
-    Expected payload: {"farmer_id": "...", "timestamp": "...", "signature": "..."}
-    """
+async def verify_qr(payload: Dict, db=Depends(get_db)):
+    """Verify a QR payload signed with server secret."""
     farmer_id = payload.get("farmer_id")
     timestamp = payload.get("timestamp")
     signature = payload.get("signature")
@@ -32,19 +32,19 @@ async def verify_qr(payload: dict, db=Depends(get_database)):
         "verified": True,
         "farmer_id": farmer_id,
         "name": f"{farmer['personal_info']['first_name']} {farmer['personal_info']['last_name']}",
-        "province": farmer["address"].get("province"),
-        "district": farmer["address"].get("district"),
+        "province": farmer["address"].get("province_name"),
+        "district": farmer["address"].get("district_name"),
     }
 
-# ✅ Secure ID card PDF download
+
 @router.get("/{farmer_id}/download-idcard",
             dependencies=[Depends(require_role(["ADMIN", "OPERATOR"]))])
-async def download_idcard(farmer_id: str, db=Depends(get_database)):
+async def download_idcard(farmer_id: str, db=Depends(get_db)):
     farmer = await db.farmers.find_one({"farmer_id": farmer_id})
     if not farmer:
         raise HTTPException(status_code=404, detail="Farmer not found")
 
-    file_path = farmer.get("id_card_path")
+    file_path = farmer.get("documents", {}).get("id_card")
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="ID card not generated yet")
 

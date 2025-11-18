@@ -1,37 +1,38 @@
-import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import useAuthStore from '@/store/authStore'
-import { ProtectedRoute } from '@/components/ProtectedRoute'
-import { RoleRoute } from '@/components/RoleRoute'
+// src/App.tsx
+import React, { useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import useAuthStore from "@/store/authStore";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { RoleRoute } from "@/components/RoleRoute";
 
 // Pages
-import Login from '@/pages/Login'
-import AdminDashboard from '@/pages/AdminDashboard'
-import OperatorDashboard from '@/pages/OperatorDashboard'
-import Dashboard from '@/pages/Dashboard'
-import FarmerRegistration from '@/pages/FarmerRegistration'
-import FarmersList from '@/pages/FarmersList'
-import EditFarmer from '@/pages/EditFarmer'
-import OperatorManagement from '@/pages/OperatorManagement'
+import Login from "@/pages/Login";
+import AdminDashboard from "@/pages/AdminDashboard";
+import OperatorDashboard from "@/pages/OperatorDashboard";
+import Dashboard from "@/pages/Dashboard";
+import FarmerRegistration from "@/pages/FarmerRegistration";
+import FarmersList from "@/pages/FarmersList";
+import EditFarmer from "@/pages/EditFarmer";
+import OperatorManagement from "@/pages/OperatorManagement";
 
 function App() {
-  const { loadUser, token, user } = useAuthStore()
+  const { loadUser, token, user } = useAuthStore();
 
   useEffect(() => {
     if (token) {
-      loadUser()
+      loadUser();
     }
-  }, [token])
+  }, [token, loadUser]);
 
-  // Redirect based on role
+  // Determine dashboard route based on user role
   const getDashboardRoute = () => {
-    if (!user) return '/login'
-    const role = user.roles?.[0]?.toLowerCase()
-    if (role === 'admin') return '/admin-dashboard'
-    if (role === 'operator') return '/operator-dashboard'
-    if (role === 'farmer') return '/farmer-dashboard'
-    return '/login'
-  }
+    if (!user) return "/login";
+    const role = user.roles?.[0]?.toLowerCase();
+    if (role === "admin") return "/admin-dashboard";
+    if (role === "operator") return "/operator-dashboard";
+    if (role === "farmer") return "/farmer-dashboard";
+    return "/login";
+  };
 
   return (
     <BrowserRouter>
@@ -50,7 +51,6 @@ function App() {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/operators/manage"
           element={
@@ -74,34 +74,32 @@ function App() {
           }
         />
 
-        {/* Shared Routes (Admin + Operator) - Farmers Management */}
+        {/* Shared Admin + Operator Routes */}
         <Route
-          path="/farmers/"
+          path="/farmers/*"
           element={
             <ProtectedRoute>
-              <RoleRoute requiredRole={['admin', 'operator']}>
+              <RoleRoute requiredRole={["admin", "operator"]}>
                 <FarmersList />
               </RoleRoute>
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/farmers/create"
           element={
             <ProtectedRoute>
-              <RoleRoute requiredRole={['admin', 'operator']}>
+              <RoleRoute requiredRole={["admin", "operator"]}>
                 <FarmerRegistration />
               </RoleRoute>
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/farmers/edit/:farmerId"
           element={
             <ProtectedRoute>
-              <RoleRoute requiredRole={['admin', 'operator']}>
+              <RoleRoute requiredRole={["admin", "operator"]}>
                 <EditFarmer />
               </RoleRoute>
             </ProtectedRoute>
@@ -121,17 +119,21 @@ function App() {
         />
 
         {/* Default Route */}
-        <Route 
-          path="/" 
+        <Route
+          path="/"
           element={
-            token ? <Navigate to={getDashboardRoute()} replace /> : <Navigate to="/login" replace />
-          } 
+            token ? (
+              <Navigate to={getDashboardRoute()} replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
         />
-        
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
-  )
+  );
 }
 
-export default App
+export default App;

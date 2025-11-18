@@ -1,25 +1,28 @@
-import { Navigate } from 'react-router-dom'
-import useAuthStore from '@/store/authStore'
+// src/components/RoleRoute.tsx
+import { Navigate } from "react-router-dom";
+import useAuthStore from "@/store/authStore";
 
-interface RoleRouteProps {
-  children: React.ReactNode
-  requiredRole: string | string[]
-}
+type RoleRouteProps = {
+  children: React.ReactNode;
+  requiredRole: string | string[];
+};
 
 export const RoleRoute = ({ children, requiredRole }: RoleRouteProps) => {
-  const { user } = useAuthStore()
+  const { user } = useAuthStore();
 
-  // Convert to array if single role
-  const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole]
+  // Normalize required roles to array and compare case-insensitively
+  const allowedRoles = Array.isArray(requiredRole)
+    ? requiredRole.map((r) => r.toUpperCase())
+    : [requiredRole.toUpperCase()];
+
+  const userRoles = user?.roles?.map((role: string) => role.toUpperCase()) ?? [];
 
   // Check if user has one of the required roles
-  const hasRole = user?.roles?.some((role: string) => 
-    allowedRoles.map(r => r.toUpperCase()).includes(role.toUpperCase())
-  )
+  const hasRole = userRoles.some((role) => allowedRoles.includes(role));
 
   if (!hasRole) {
-    return <Navigate to="/login" replace />
+    return <Navigate to="/login" replace />;
   }
 
-  return <>{children}</>
-}
+  return <>{children}</>;
+};

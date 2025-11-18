@@ -1,235 +1,644 @@
-from fastapi import (
-    APIRouter, Depends, HTTPException, status, BackgroundTasks, File, UploadFile
-)
-from uuid import uuid4
-from datetime import datetime
-from fastapi.responses import FileResponse, JSONResponse
-import os
+# backend/app/routes/farmers.py
+"""
+Farmer management endpoints.
 
-from app.database import get_database
-from app.dependencies.roles import require_role
-from app.models.farmer import FarmerCreate, FarmerOut
+Endpoints:
+- POST /api/farmers - Create new farmer
+- GET /api/farmers - List farmers with pagination/filters
+- GET /api/farmers/{farmer_id} - Get farmer details
+- PUT /api/farmers/{farmer_id} - Update farmer
+- PATCH /api/farmers/{farmer_id}/status - Update registration status
+- DELETE /api/farmers/{farmer_id} - Delete farmer
+- POST /api/farmers/{farmer_id}/upload-photo - Upload farmer photo
+- GET /api/farmers/{farmer_id}/documents - Get farmer documents
+- POST /api/farmers/verify-qr - Verify QR code
+"""
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    BackgroundTasks,
+    File,
+    UploadFile,
+    Query,
+)
+from typing import Optional, List
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from app.database import get_db
+from app.dependencies.roles import (
+    require_role,
+    require_operator,
+    require_admin,
+    can_access_farmer_data,
+    get_current_user
+)
+from app.models.farmer import (
+    FarmerCreate,
+    FarmerUpdate,
+    FarmerOut,
+    FarmerListItem,
+)
 from app.services.farmer_service import FarmerService
-from app.tasks.id_card_task import generate_id_card
-from app.utils.security import verify_qr_signature
+from app.utils.security import verify_qr_signature, generate_qr_data
 from app.config import settings
 
-# ✅ Remove trailing slash in prefix — prevents 405 issues like
-#    "GET /api/farmers/ZMXXXXXX/ HTTP 405"
-router = APIRouter(prefix="/api/farmers", tags=["Farmers"])
 
-# =======================================================
-# Constants
-# =======================================================
-FRONTEND_ORIGIN = "https://glowing-fishstick-xg76vqgjxxph67ww-5173.app.github.dev"
+router = APIRouter(prefix="/farmers", tags=["Farmers"])
 
 
 # =======================================================
-# Helper Functions
-# =======================================================
-def farmer_helper(farmer: dict) -> dict:
-    """Convert MongoDB document to JSON-safe dict."""
-    if not farmer:
-        return None
-    farmer["_id"] = str(farmer.get("_id"))
-    return farmer
-
-
-
-# =======================================================
-# Create Farmer (ADMIN or OPERATOR)
+# CREATE Farmer (handles both /farmers and /farmers/)
 # =======================================================
 @router.post(
     "/",
     response_model=FarmerOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_role(["ADMIN", "OPERATOR"]))],
+    summary="Create new farmer",
+    description="Register a new farmer (ADMIN or OPERATOR only)"
 )
-async def create_farmer(farmer: FarmerCreate, db=Depends(get_database)):
-    """Register a new farmer."""
-    data = farmer.dict()
-
-    # Validate + encrypt
-    FarmerService.validate_farmer_data(data)
-    data = FarmerService.encrypt_sensitive_fields(data)
-
-    data["farmer_id"] = "ZM" + uuid4().hex[:8].upper()
-    data["created_at"] = datetime.utcnow()
-    data["registration_status"] = "pending"
-
-    await db.farmers.insert_one(data)
-    return FarmerOut(**data)
+@router.post(
+    "",
+    response_model=FarmerOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create new farmer",
+    description="Register a new farmer (ADMIN or OPERATOR only)",
+    include_in_schema=False  # Hide duplicate from docs
+)
+async def create_farmer(
+    farmer_data: FarmerCreate,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_operator)
+):
+    """
+    Create a new farmer record.
+    
+    **Permissions:** ADMIN or OPERATOR
+    
+    **Validations:**
+    - NRC format (######/##/#)
+    - Age >= 18 years
+    - Phone format (+260XXXXXXXXX)
+    - GPS coordinates within Zambia bounds
+    - No duplicate NRC
+    
+    **Process:**
+    1. Validate farmer data
+    2. Generate unique farmer ID (ZM + 8 hex chars)
+    3. Create farmer record with "pending" status
+    4. Return created farmer
+    
+    **Example Request:**
+    ```
+    {
+        "personal_info": {
+            "first_name": "John",
+            "last_name": "Zimba",
+            "phone_primary": "+260977000000",
+            "nrc": "123456/12/1",
+            "date_of_birth": "1990-01-15",
+            "gender": "Male"
+        },
+        "address": {
+            "province_code": "LP",
+            "province_name": "Luapula Province",
+            "district_code": "LP05",
+            "district_name": "Kawambwa District",
+            "chiefdom_code": "LP05-002",
+            "chiefdom_name": "Chief Chama",
+            "village": "Chisenga"
+        }
+    }
+    ```
+    """
+    # Initialize service
+    farmer_service = FarmerService(db)
+    
+    # Create farmer
+    created_by = current_user.get("email")
+    farmer = await farmer_service.create_farmer(farmer_data, created_by=created_by)
+    
+    return farmer
 
 
 # =======================================================
-# List Farmers (ADMIN, OPERATOR, VIEWER)
+# LIST Farmers (handles both /farmers and /farmers/)
 # =======================================================
 @router.get(
     "/",
-    dependencies=[Depends(require_role(["ADMIN", "OPERATOR", "VIEWER"]))],
+    response_model=List[FarmerListItem],
+    summary="List farmers",
+    description="Get paginated list of farmers with optional filtering"
 )
-async def list_farmers(skip: int = 0, limit: int = 20, db=Depends(get_database)):
-    """List all farmers (paginated)."""
-    farmers = (
-        await db.farmers.find({}, {"_id": 0})
-        .skip(skip)
-        .limit(limit)
-        .to_list(length=limit)
-    )
-    return {"count": len(farmers), "results": farmers}
-
-
-# =======================================================
-# Get Single Farmer
-# =======================================================
 @router.get(
-    "/{farmer_id}",
-    dependencies=[Depends(require_role(["ADMIN", "OPERATOR", "VIEWER"]))],
+    "",
+    response_model=List[FarmerListItem],
+    summary="List farmers",
+    description="Get paginated list of farmers with optional filtering",
+    include_in_schema=False  # Hide duplicate from docs
 )
-async def get_farmer(farmer_id: str, db=Depends(get_database)):
-    """Get one farmer by ID."""
-    farmer = await db.farmers.find_one({"farmer_id": farmer_id})
-    if not farmer:
-        raise HTTPException(status_code=404, detail="Farmer not found")
-    return farmer_helper(farmer)
-
-
-# =======================================================
-# Update Farmer
-# =======================================================
-@router.put(
-    "/{farmer_id}",
-    dependencies=[Depends(require_role(["ADMIN", "OPERATOR"]))],
-)
-async def update_farmer(farmer_id: str, payload: dict, db=Depends(get_database)):
-    """Update farmer details."""
-    result = await db.farmers.update_one({"farmer_id": farmer_id}, {"$set": payload})
-    if result.modified_count == 0:
-        raise HTTPException(
-            status_code=404, detail="Farmer not found or no changes made"
-        )
-    farmer = await db.farmers.find_one({"farmer_id": farmer_id})
-    return farmer_helper(farmer)
-
-
-# =======================================================
-# Delete Farmer
-# =======================================================
-@router.delete(
-    "/{farmer_id}",
-    dependencies=[Depends(require_role(["ADMIN"]))],
-)
-async def delete_farmer(farmer_id: str, db=Depends(get_database)):
-    """Delete a farmer (Admin only)."""
-    result = await db.farmers.delete_one({"farmer_id": farmer_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Farmer not found")
-    return {"message": f"Farmer {farmer_id} deleted successfully"}
-
-
-# =======================================================
-# Upload Photo
-# =======================================================
-@router.post(
-    "/{farmer_id}/upload-photo",
-    dependencies=[Depends(require_role(["ADMIN", "OPERATOR"]))],
-)
-async def upload_farmer_photo(
-    farmer_id: str, file: UploadFile = File(...), db=Depends(get_database)
+async def list_farmers(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum records to return"),
+    status: Optional[str] = Query(None, regex="^(pending|approved|rejected)$", description="Filter by registration status"),
+    district: Optional[str] = Query(None, description="Filter by district name"),
+    search: Optional[str] = Query(None, description="Search in name, phone, farmer_id"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_role(["ADMIN", "OPERATOR", "VIEWER"]))
 ):
-    """Upload farmer photo."""
-    farmer = await db.farmers.find_one({"farmer_id": farmer_id})
-    if not farmer:
-        raise HTTPException(status_code=404, detail="Farmer not found")
-
-    # ✅ Ensure proper path construction (no /app leak)
-    folder = os.path.join(settings.UPLOAD_DIR, "photos", farmer_id)
-    os.makedirs(folder, exist_ok=True)
-    file_path = os.path.join(folder, f"{farmer_id}_photo.jpg")
-
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
-
-    db_path = file_path.replace("/app", "").replace("\\", "/")
-
-    await db.farmers.update_one(
-        {"farmer_id": farmer_id},
-        {"$set": {"photo_path": db_path}},
+    """
+    List all farmers with pagination and filtering.
+    
+    **Permissions:** ADMIN, OPERATOR, or VIEWER
+    
+    **Query Parameters:**
+    - `skip`: Pagination offset (default: 0)
+    - `limit`: Max records per page (default: 20, max: 100)
+    - `status`: Filter by status (pending/approved/rejected)
+    - `district`: Filter by district name
+    - `search`: Search in farmer_id, name, phone
+    
+    **Example:**
+    ```
+    GET /api/farmers?skip=0&limit=20&status=pending&district=Kawambwa
+    ```
+    
+    **Response:**
+    ```
+    [
+        {
+            "_id": "507f1f77bcf86cd799439011",
+            "farmer_id": "ZM1A2B3C4D",
+            "registration_status": "pending",
+            "created_at": "2025-11-17T12:00:00Z",
+            "first_name": "John",
+            "last_name": "Zimba",
+            "phone_primary": "+260977000000",
+            "village": "Chisenga",
+            "district_name": "Kawambwa District"
+        }
+    ]
+    ```
+    """
+    farmer_service = FarmerService(db)
+    
+    farmers = await farmer_service.list_farmers(
+        skip=skip,
+        limit=limit,
+        status=status,
+        district=district,
+        search=search
     )
-
-    return {"message": "Photo uploaded", "photo_path": db_path}
-
-
-# =======================================================
-# Generate ID Card (async Celery)
-# =======================================================
-@router.post(
-    "/{farmer_id}/generate-idcard",
-    dependencies=[Depends(require_role(["ADMIN", "OPERATOR"]))],
-)
-async def generate_farmer_idcard(
-    farmer_id: str, background_tasks: BackgroundTasks, db=Depends(get_database)
-):
-    """Trigger async ID card generation."""
-    farmer = await db.farmers.find_one({"farmer_id": farmer_id})
-    if not farmer:
-        raise HTTPException(status_code=404, detail="Farmer not found")
-
-    background_tasks.add_task(generate_id_card, farmer)
-    return {"message": "ID card generation started", "farmer_id": farmer_id}
+    
+    return farmers
 
 
-# =======================================================
-# Download ID Card
-# =======================================================
 @router.get(
-    "/{farmer_id}/download-idcard",
-    dependencies=[Depends(require_role(["ADMIN", "OPERATOR", "VIEWER"]))],
+    "/count",
+    summary="Count farmers",
+    description="Get total count of farmers with optional filters"
 )
-async def download_idcard(farmer_id: str, db=Depends(get_database)):
-    """Download generated ID card PDF."""
-    farmer = await db.farmers.find_one({"farmer_id": farmer_id})
-    if not farmer or not farmer.get("id_card_path"):
-        raise HTTPException(status_code=404, detail="ID card not found")
-
-    file_path = farmer["id_card_path"]
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk")
-
-    return FileResponse(
-        file_path,
-        media_type="application/pdf",
-        filename=os.path.basename(file_path),
-    )
-
-
-# =======================================================
-# Verify QR Code
-# =======================================================
-@router.post("/verify-qr")
-async def verify_qr(payload: dict, db=Depends(get_database)):
-    """Verify QR code signature."""
-    if not verify_qr_signature(payload):
-        raise HTTPException(status_code=400, detail="Invalid or tampered QR code")
-
-    farmer_id = payload.get("farmer_id")
-    farmer = await db.farmers.find_one({"farmer_id": farmer_id})
-    if not farmer:
-        raise HTTPException(status_code=404, detail="Farmer not found")
-
+async def count_farmers(
+    status: Optional[str] = Query(None, regex="^(pending|approved|rejected)$"),
+    district: Optional[str] = Query(None),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_role(["ADMIN", "OPERATOR", "VIEWER"]))
+):
+    """
+    Get total farmer count with optional filters.
+    
+    **Example Response:**
+    ```
+    {
+        "total": 150,
+        "filters": {
+            "status": "pending",
+            "district": "Kawambwa"
+        }
+    }
+    ```
+    """
+    farmer_service = FarmerService(db)
+    
+    total = await farmer_service.count_farmers(status=status, district=district)
+    
     return {
-        "verified": True,
-        "farmer_id": farmer["farmer_id"],
-        "name": f"{farmer['personal_info']['first_name']} {farmer['personal_info']['last_name']}",
-        "province": farmer["address"]["province"],
-        "district": farmer["address"]["district"],
+        "total": total,
+        "filters": {
+            "status": status,
+            "district": district
+        }
     }
 
 
 # =======================================================
-# Health endpoint
+# GET Single Farmer
 # =======================================================
-@router.get("/health", status_code=200)
-async def get_farmers_list_for_health():
-    """Health check."""
-    return {"message": "Farmers endpoint reachable"}
+@router.get(
+    "/{farmer_id}",
+    response_model=FarmerOut,
+    summary="Get farmer details",
+    description="Get detailed information about a specific farmer"
+)
+async def get_farmer(
+    farmer_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_role(["ADMIN", "OPERATOR", "VIEWER", "FARMER"]))
+):
+    """
+    Get detailed farmer information.
+    
+    **Permissions:**
+    - ADMIN/OPERATOR/VIEWER: Can view all farmers
+    - FARMER: Can only view their own data
+    
+    **Example Response:**
+    ```
+    {
+        "_id": "507f1f77bcf86cd799439011",
+        "farmer_id": "ZM1A2B3C4D",
+        "registration_status": "approved",
+        "created_at": "2025-11-17T12:00:00Z",
+        "personal_info": {
+            "first_name": "John",
+            "last_name": "Zimba",
+            "phone_primary": "+260977000000",
+            "nrc": "123456/12/1",
+            "date_of_birth": "1990-01-15",
+            "gender": "Male"
+        },
+        "address": {...},
+        "farm_info": {...},
+        "household_info": {...},
+        "documents": {...}
+    }
+    ```
+    """
+    farmer_service = FarmerService(db)
+    
+    farmer = await farmer_service.get_farmer_by_id(farmer_id)
+    
+    if not farmer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Farmer {farmer_id} not found"
+        )
+    
+    # TODO: Add resource-based access control for FARMER role
+    # if current_user has FARMER role, verify they own this farmer_id
+    
+    return farmer
+
+
+# =======================================================
+# UPDATE Farmer
+# =======================================================
+@router.put(
+    "/{farmer_id}",
+    response_model=FarmerOut,
+    summary="Update farmer",
+    description="Update farmer information (ADMIN or OPERATOR only)"
+)
+async def update_farmer(
+    farmer_id: str,
+    update_data: FarmerUpdate,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_operator)
+):
+    """
+    Update farmer information.
+    
+    **Permissions:** ADMIN or OPERATOR
+    
+    **Notes:**
+    - Partial updates allowed (only send fields to update)
+    - Cannot change farmer_id
+    - Updates timestamp automatically
+    
+    **Example Request:**
+    ```
+    {
+        "personal_info": {
+            "phone_secondary": "+260966000000"
+        },
+        "registration_status": "approved"
+    }
+    ```
+    """
+    farmer_service = FarmerService(db)
+    
+    updated_farmer = await farmer_service.update_farmer(farmer_id, update_data)
+    
+    if not updated_farmer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Farmer {farmer_id} not found"
+        )
+    
+    return updated_farmer
+
+
+# =======================================================
+# UPDATE Registration Status
+# =======================================================
+@router.patch(
+    "/{farmer_id}/status",
+    response_model=FarmerOut,
+    summary="Update registration status",
+    description="Approve or reject farmer registration (ADMIN or OPERATOR)"
+)
+async def update_farmer_status(
+    farmer_id: str,
+    new_status: str = Query(..., regex="^(pending|approved|rejected)$"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_operator)
+):
+    """
+    Update farmer registration status.
+    
+    **Permissions:** ADMIN or OPERATOR
+    
+    **Valid Statuses:**
+    - `pending` - Initial state
+    - `approved` - Farmer approved
+    - `rejected` - Farmer rejected
+    
+    **Example:**
+    ```
+    PATCH /api/farmers/ZM1A2B3C4D/status?new_status=approved
+    ```
+    """
+    farmer_service = FarmerService(db)
+    
+    updated_farmer = await farmer_service.update_registration_status(
+        farmer_id, 
+        new_status
+    )
+    
+    return updated_farmer
+
+
+# =======================================================
+# DELETE Farmer
+# =======================================================
+@router.delete(
+    "/{farmer_id}",
+    summary="Delete farmer",
+    description="Delete a farmer record (ADMIN only)"
+)
+async def delete_farmer(
+    farmer_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """
+    Delete a farmer record.
+    
+    **Permissions:** ADMIN only
+    
+    **Warning:** This is a hard delete. Consider soft delete in production.
+    
+    **Example Response:**
+    ```
+    {
+        "message": "Farmer ZM1A2B3C4D deleted successfully",
+        "farmer_id": "ZM1A2B3C4D"
+    }
+    ```
+    """
+    farmer_service = FarmerService(db)
+    
+    deleted = await farmer_service.delete_farmer(farmer_id)
+    
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Farmer {farmer_id} not found"
+        )
+    
+    return {
+        "message": f"Farmer {farmer_id} deleted successfully",
+        "farmer_id": farmer_id
+    }
+
+
+# =======================================================
+# UPLOAD Photo
+# =======================================================
+@router.post(
+    "/{farmer_id}/upload-photo",
+    summary="Upload farmer photo",
+    description="Upload photo for farmer profile"
+)
+async def upload_farmer_photo(
+    farmer_id: str,
+    file: UploadFile = File(..., description="Photo file (JPG/PNG, max 10MB)"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_operator)
+):
+    """
+    Upload farmer photo.
+    
+    **Permissions:** ADMIN or OPERATOR
+    
+    **File Requirements:**
+    - Formats: JPG, PNG
+    - Max size: 10MB (configurable in settings)
+    
+    **Process:**
+    1. Validate file type and size
+    2. Save to /uploads/{farmer_id}/photos/
+    3. Update farmer document with photo path
+    4. Return photo URL
+    
+    **Example Response:**
+    ```
+    {
+        "message": "Photo uploaded successfully",
+        "farmer_id": "ZM1A2B3C4D",
+        "photo_path": "/uploads/ZM1A2B3C4D/photos/photo.png"
+    }
+    ```
+    """
+    import os
+    from pathlib import Path
+    
+    # Validate file type
+    allowed_extensions = settings.ALLOWED_IMAGE_EXTENSIONS
+    file_ext = file.filename.split('.')[-1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed: {allowed_extensions}"
+        )
+    
+    # Check file size
+    max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024  # Convert to bytes
+    file_content = await file.read()
+    
+    if len(file_content) > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Max size: {settings.MAX_UPLOAD_SIZE_MB}MB"
+        )
+    
+    # Verify farmer exists
+    farmer_service = FarmerService(db)
+    farmer = await farmer_service.get_farmer_by_id(farmer_id)
+    
+    if not farmer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Farmer {farmer_id} not found"
+        )
+    
+    # Create upload directory
+    upload_dir = Path(settings.UPLOAD_DIR) / farmer_id / "photos"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save file
+    file_path = upload_dir / f"photo.{file_ext}"
+    
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+    
+    # Update farmer document
+    relative_path = f"/uploads/{farmer_id}/photos/photo.{file_ext}"
+    
+    await farmer_service.update_documents(
+        farmer_id,
+        {"photo": relative_path}
+    )
+    
+    return {
+        "message": "Photo uploaded successfully",
+        "farmer_id": farmer_id,
+        "photo_path": relative_path
+    }
+
+
+# =======================================================
+# VERIFY QR Code
+# =======================================================
+@router.post(
+    "/verify-qr",
+    summary="Verify QR code",
+    description="Verify farmer QR code signature and return farmer info"
+)
+async def verify_qr_code(
+    payload: dict,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """
+    Verify QR code authenticity and return farmer information.
+    
+    **Public Endpoint** - No authentication required for verification
+    
+    **Process:**
+    1. Verify HMAC signature
+    2. Check timestamp freshness (optional)
+    3. Fetch farmer data
+    4. Return verification result
+    
+    **Example Request:**
+    ```
+    {
+        "farmer_id": "ZM1A2B3C4D",
+        "timestamp": "2025-11-17T12:00:00Z",
+        "signature": "xyz..."
+    }
+    ```
+    
+    **Example Response:**
+    ```
+    {
+        "verified": true,
+        "farmer_id": "ZM1A2B3C4D",
+        "name": "John Zimba",
+        "registration_status": "approved",
+        "district": "Kawambwa District",
+        "verified_at": "2025-11-17T12:30:00Z"
+    }
+    ```
+    """
+    from datetime import datetime, timezone
+    
+    # Verify QR signature
+    if not verify_qr_signature(payload):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or tampered QR code signature"
+        )
+    
+    # Extract farmer ID
+    farmer_id = payload.get("farmer_id")
+    if not farmer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing farmer_id in QR payload"
+        )
+    
+    # Fetch farmer
+    farmer_service = FarmerService(db)
+    farmer = await farmer_service.get_farmer_by_id(farmer_id)
+    
+    if not farmer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Farmer {farmer_id} not found"
+        )
+    
+    # Return verification result
+    now = datetime.now(timezone.utc)
+    
+    return {
+        "verified": True,
+        "farmer_id": farmer.farmer_id,
+        "name": f"{farmer.personal_info.first_name} {farmer.personal_info.last_name}",
+        "registration_status": farmer.registration_status,
+        "province": farmer.address.province_name,
+        "district": farmer.address.district_name,
+        "village": farmer.address.village,
+        "verified_at": now.isoformat()
+    }
+
+
+# =======================================================
+# STATISTICS
+# =======================================================
+@router.get(
+    "/stats/overview",
+    summary="Get farmer statistics",
+    description="Get farmer counts and analytics for dashboard"
+)
+async def get_farmer_statistics(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(require_role(["ADMIN", "OPERATOR"]))
+):
+    """
+    Get farmer statistics for dashboard.
+    
+    **Permissions:** ADMIN or OPERATOR
+    
+    **Example Response:**
+    ```
+    {
+        "total_farmers": 150,
+        "pending": 30,
+        "approved": 100,
+        "rejected": 20,
+        "by_district": [
+            {"district": "Kawambwa", "count": 45},
+            {"district": "Mansa", "count": 35}
+        ]
+    }
+    ```
+    """
+    farmer_service = FarmerService(db)
+    
+    stats = await farmer_service.get_statistics()
+    
+    return stats

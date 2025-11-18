@@ -1,7 +1,32 @@
+# backend/app/services/farmer_service.py
+"""
+Business logic layer for farmer management.
+
+Responsibilities:
+- Farmer CRUD operations
+- Data validation
+- Farmer ID generation
+- Document management
+- Search and filtering
+"""
+
 import re
 from datetime import datetime
-from fastapi import HTTPException
-from ..utils.crypto_utils import encrypt_deterministic, hmac_hash
+from typing import Optional, List, Dict, Any
+from bson import ObjectId
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from fastapi import HTTPException, status
+
+from app.models.farmer import (
+    FarmerCreate,
+    FarmerUpdate,
+    FarmerInDB,
+    FarmerOut,
+    FarmerListItem
+)
+from app.utils.crypto_utils import generate_farmer_id, hmac_hash
+from app.database import get_farmers_collection
+
 
 # =======================================================
 # Zambia-specific validation constants
@@ -9,87 +34,534 @@ from ..utils.crypto_utils import encrypt_deterministic, hmac_hash
 ZAMBIA_LAT_RANGE = (-18.0, -8.0)
 ZAMBIA_LON_RANGE = (21.0, 34.0)
 NRC_PATTERN = re.compile(r"^\d{6}/\d{2}/\d$")
+ZAMBIA_PHONE_PATTERN = re.compile(r"^(\+260|0)[0-9]{9}$")
 
 
 class FarmerService:
     """
-    Handles business logic for farmer data:
-      - Validation (NRC, GPS, age, phone)
-      - Encryption of sensitive fields
+    Service layer for farmer management operations.
+    Handles validation, CRUD, and business logic.
     """
-
-    # =======================================================
-    # 1️⃣ Validation
-    # =======================================================
-    @staticmethod
-    def validate_farmer_data(data: dict) -> bool:
+    
+    def __init__(self, db: AsyncIOMotorDatabase):
         """
-        Validate farmer data before inserting into MongoDB.
-        Raises HTTPException(400) if validation fails.
+        Initialize farmer service.
+        
+        Args:
+            db: MongoDB database instance
+        """
+        self.db = db
+        self.collection = db.farmers
+    
+    # =======================================================
+    # 1️⃣ CREATE Operations
+    # =======================================================
+    async def create_farmer(
+        self, 
+        farmer_data: FarmerCreate,
+        created_by: Optional[str] = None
+    ) -> FarmerOut:
+        """
+        Create a new farmer record.
+        
+        Args:
+            farmer_data: Farmer creation data (validated Pydantic model)
+            created_by: Email of user creating the farmer
+        
+        Returns:
+            FarmerOut: Created farmer document
+        
+        Raises:
+            HTTPException: If validation fails or farmer already exists
+        """
+        # Validate the farmer data
+        self._validate_farmer_data(farmer_data.model_dump())
+        
+        # Check for duplicate NRC
+        if farmer_data.personal_info.nrc:
+            await self._check_duplicate_nrc(farmer_data.personal_info.nrc)
+        
+        # Generate unique farmer ID
+        farmer_id = await self._generate_unique_farmer_id()
+        
+        # Build farmer document
+        now = datetime.now(datetime.timezone.utc) if hasattr(datetime, 'timezone') else datetime.utcnow()
+        
+        farmer_doc = {
+            "farmer_id": farmer_id,
+            "registration_status": "pending",
+            "created_at": now,
+            "updated_at": now,
+            "personal_info": farmer_data.personal_info.model_dump(),
+            "address": farmer_data.address.model_dump(),
+            "farm_info": farmer_data.farm_info.model_dump() if farmer_data.farm_info else None,
+            "household_info": farmer_data.household_info.model_dump() if farmer_data.household_info else None,
+            "documents": None,  # Will be populated during document upload
+        }
+        
+        # Add metadata
+        if created_by:
+            farmer_doc["created_by"] = created_by
+        
+        # Add searchable hashes for NRC (for privacy)
+        if farmer_data.personal_info.nrc:
+            farmer_doc["nrc_hash"] = hmac_hash(
+                farmer_data.personal_info.nrc, 
+                salt="nrc"
+            )
+        
+        # Insert into database
+        result = await self.collection.insert_one(farmer_doc)
+        
+        # Fetch and return the created farmer
+        created_farmer = await self.collection.find_one({"_id": result.inserted_id})
+        
+        return FarmerOut.from_mongo(created_farmer)
+    
+    # =======================================================
+    # 2️⃣ READ Operations
+    # =======================================================
+    async def get_farmer_by_id(self, farmer_id: str) -> Optional[FarmerOut]:
+        """
+        Get farmer by farmer_id.
+        
+        Args:
+            farmer_id: Unique farmer identifier (e.g., ZM12345)
+        
+        Returns:
+            Optional[FarmerOut]: Farmer document or None
+        """
+        farmer = await self.collection.find_one({"farmer_id": farmer_id})
+        
+        if not farmer:
+            return None
+        
+        return FarmerOut.from_mongo(farmer)
+    
+    async def get_farmer_by_object_id(self, object_id: str) -> Optional[FarmerOut]:
+        """
+        Get farmer by MongoDB _id.
+        
+        Args:
+            object_id: MongoDB ObjectId as string
+        
+        Returns:
+            Optional[FarmerOut]: Farmer document or None
+        """
+        try:
+            farmer = await self.collection.find_one({"_id": ObjectId(object_id)})
+            
+            if not farmer:
+                return None
+            
+            return FarmerOut.from_mongo(farmer)
+        except Exception:
+            return None
+    
+    async def get_farmer_by_nrc(self, nrc: str) -> Optional[FarmerOut]:
+        """
+        Get farmer by NRC number (using hash lookup).
+        
+        Args:
+            nrc: National Registration Card number
+        
+        Returns:
+            Optional[FarmerOut]: Farmer document or None
+        """
+        nrc_hash = hmac_hash(nrc, salt="nrc")
+        farmer = await self.collection.find_one({"nrc_hash": nrc_hash})
+        
+        if not farmer:
+            return None
+        
+        return FarmerOut.from_mongo(farmer)
+    
+    async def list_farmers(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        status: Optional[str] = None,
+        district: Optional[str] = None,
+        search: Optional[str] = None
+    ) -> List[FarmerListItem]:
+        """
+        List farmers with pagination and filtering.
+        
+        Args:
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            status: Filter by registration status
+            district: Filter by district name
+            search: Search in name, phone, farmer_id
+        
+        Returns:
+            List[FarmerListItem]: List of farmer summaries
+        """
+        # Build query filter
+        query = {}
+        
+        if status:
+            query["registration_status"] = status
+        
+        if district:
+            query["address.district_name"] = district
+        
+        if search:
+            # Search in multiple fields
+            query["$or"] = [
+                {"farmer_id": {"$regex": search, "$options": "i"}},
+                {"personal_info.first_name": {"$regex": search, "$options": "i"}},
+                {"personal_info.last_name": {"$regex": search, "$options": "i"}},
+                {"personal_info.phone_primary": {"$regex": search, "$options": "i"}},
+            ]
+        
+        # Execute query with pagination
+        cursor = self.collection.find(query).skip(skip).limit(limit).sort("created_at", -1)
+        farmers = await cursor.to_list(length=limit)
+        
+        # Transform to list items
+        result = []
+        for farmer in farmers:
+            result.append(FarmerListItem(
+                _id=str(farmer["_id"]),
+                farmer_id=farmer.get("farmer_id", "UNKNOWN"),
+                registration_status=farmer.get("registration_status", "pending"),
+                created_at=farmer.get("created_at", ""),
+                first_name=farmer.get("personal_info", {}).get("first_name", ""),
+                last_name=farmer.get("personal_info", {}).get("last_name", ""),
+                phone_primary=farmer.get("personal_info", {}).get("phone_primary", ""),
+                village=farmer.get("address", {}).get("village", ""),
+                district_name=farmer.get("address", {}).get("district_name", ""),
+            ))
+        
+        return result
+    
+    async def count_farmers(
+        self,
+        status: Optional[str] = None,
+        district: Optional[str] = None
+    ) -> int:
+        """
+        Count total farmers with optional filters.
+        
+        Args:
+            status: Filter by registration status
+            district: Filter by district name
+        
+        Returns:
+            int: Total count
+        """
+        query = {}
+        
+        if status:
+            query["registration_status"] = status
+        
+        if district:
+            query["address.district_name"] = district
+        
+        return await self.collection.count_documents(query)
+    
+    # =======================================================
+    # 3️⃣ UPDATE Operations
+    # =======================================================
+    async def update_farmer(
+        self,
+        farmer_id: str,
+        update_data: FarmerUpdate
+    ) -> Optional[FarmerOut]:
+        """
+        Update farmer information.
+        
+        Args:
+            farmer_id: Farmer ID to update
+            update_data: Partial update data
+        
+        Returns:
+            Optional[FarmerOut]: Updated farmer or None if not found
+        """
+        # Check if farmer exists
+        existing = await self.collection.find_one({"farmer_id": farmer_id})
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Farmer {farmer_id} not found"
+            )
+        
+        # Build update document (only include non-None fields)
+        update_dict = update_data.model_dump(exclude_none=True)
+        
+        if not update_dict:
+            return FarmerOut.from_mongo(existing)
+        
+        # Add updated timestamp
+        now = datetime.now(datetime.timezone.utc) if hasattr(datetime, 'timezone') else datetime.utcnow()
+        update_dict["updated_at"] = now
+        
+        # Perform update
+        await self.collection.update_one(
+            {"farmer_id": farmer_id},
+            {"$set": update_dict}
+        )
+        
+        # Fetch and return updated farmer
+        updated = await self.collection.find_one({"farmer_id": farmer_id})
+        return FarmerOut.from_mongo(updated)
+    
+    async def update_registration_status(
+        self,
+        farmer_id: str,
+        new_status: str
+    ) -> Optional[FarmerOut]:
+        """
+        Update farmer registration status.
+        
+        Args:
+            farmer_id: Farmer ID
+            new_status: New status (pending, approved, rejected)
+        
+        Returns:
+            Optional[FarmerOut]: Updated farmer
+        
+        Raises:
+            HTTPException: If status is invalid
+        """
+        if new_status not in ["pending", "approved", "rejected"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid status. Must be: pending, approved, or rejected"
+            )
+        
+        now = datetime.now(datetime.timezone.utc) if hasattr(datetime, 'timezone') else datetime.utcnow()
+        
+        result = await self.collection.update_one(
+            {"farmer_id": farmer_id},
+            {
+                "$set": {
+                    "registration_status": new_status,
+                    "updated_at": now
+                }
+            }
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Farmer {farmer_id} not found"
+            )
+        
+        updated = await self.collection.find_one({"farmer_id": farmer_id})
+        return FarmerOut.from_mongo(updated)
+    
+    async def update_documents(
+        self,
+        farmer_id: str,
+        document_paths: Dict[str, str]
+    ) -> Optional[FarmerOut]:
+        """
+        Update farmer document file paths.
+        
+        Args:
+            farmer_id: Farmer ID
+            document_paths: Dict of document types to file paths
+        
+        Returns:
+            Optional[FarmerOut]: Updated farmer
+        """
+        now = datetime.now(datetime.timezone.utc) if hasattr(datetime, 'timezone') else datetime.utcnow()
+        
+        # Build nested update for documents
+        update_fields = {
+            f"documents.{key}": value 
+            for key, value in document_paths.items()
+        }
+        update_fields["updated_at"] = now
+        
+        result = await self.collection.update_one(
+            {"farmer_id": farmer_id},
+            {"$set": update_fields}
+        )
+        
+        if result.matched_count == 0:
+            return None
+        
+        updated = await self.collection.find_one({"farmer_id": farmer_id})
+        return FarmerOut.from_mongo(updated)
+    
+    # =======================================================
+    # 4️⃣ DELETE Operations
+    # =======================================================
+    async def delete_farmer(self, farmer_id: str) -> bool:
+        """
+        Delete a farmer record (soft delete recommended in production).
+        
+        Args:
+            farmer_id: Farmer ID to delete
+        
+        Returns:
+            bool: True if deleted, False if not found
+        """
+        result = await self.collection.delete_one({"farmer_id": farmer_id})
+        return result.deleted_count > 0
+    
+    # =======================================================
+    # 5️⃣ Validation Helpers
+    # =======================================================
+    def _validate_farmer_data(self, data: dict) -> None:
+        """
+        Validate farmer data before database operations.
+        
+        Args:
+            data: Farmer data dictionary
+        
+        Raises:
+            HTTPException: If validation fails
         """
         errors = []
-
+        
         personal = data.get("personal_info", {})
         address = data.get("address", {})
-        nrc = data.get("nrc_number")
-        dob = personal.get("date_of_birth")
-        phone = personal.get("phone_primary")
-
+        
         # --- NRC format ---
+        nrc = personal.get("nrc")
         if nrc and not NRC_PATTERN.match(nrc):
             errors.append("Invalid NRC format (expected ######/##/#)")
-
+        
         # --- Date of birth / age ---
+        dob = personal.get("date_of_birth")
         if dob:
             try:
-                age = (datetime.utcnow() - datetime.strptime(dob, "%Y-%m-%d")).days // 365
+                # Parse date
+                if isinstance(dob, str):
+                    dob_date = datetime.strptime(dob, "%Y-%m-%d")
+                else:
+                    dob_date = dob
+                
+                # Calculate age
+                now = datetime.now(datetime.timezone.utc) if hasattr(datetime, 'timezone') else datetime.utcnow()
+                age = (now - dob_date).days // 365
+                
                 if age < 18:
                     errors.append("Farmer must be at least 18 years old")
+                if age > 120:
+                    errors.append("Invalid date of birth (age > 120)")
             except ValueError:
                 errors.append("Invalid date_of_birth format (expected YYYY-MM-DD)")
-
+        
         # --- GPS coordinates ---
-        lat, lon = address.get("gps_latitude"), address.get("gps_longitude")
+        lat = address.get("gps_latitude")
+        lon = address.get("gps_longitude")
+        
         if lat is not None and lon is not None:
             try:
                 lat = float(lat)
                 lon = float(lon)
+                
                 if not (ZAMBIA_LAT_RANGE[0] <= lat <= ZAMBIA_LAT_RANGE[1]):
-                    errors.append("Latitude out of Zambia bounds (-18 to -8)")
+                    errors.append(f"Latitude out of Zambia bounds ({ZAMBIA_LAT_RANGE[0]} to {ZAMBIA_LAT_RANGE[1]})")
+                
                 if not (ZAMBIA_LON_RANGE[0] <= lon <= ZAMBIA_LON_RANGE[1]):
-                    errors.append("Longitude out of Zambia bounds (21 to 34)")
+                    errors.append(f"Longitude out of Zambia bounds ({ZAMBIA_LON_RANGE[0]} to {ZAMBIA_LON_RANGE[1]})")
             except (TypeError, ValueError):
                 errors.append("Invalid GPS coordinates (must be numbers)")
-
+        
         # --- Phone number ---
-        if not phone or not str(phone).startswith("+260"):
-            errors.append("Phone must start with country code +260")
-
+        phone = personal.get("phone_primary")
+        if phone and not ZAMBIA_PHONE_PATTERN.match(phone):
+            errors.append("Phone must match Zambian format (+260XXXXXXXXX or 0XXXXXXXXX)")
+        
         # --- Raise errors if any ---
         if errors:
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "message": "Validation failed",
                     "errors": errors,
                 },
             )
-
-        return True
-
-    # =======================================================
-    # 2️⃣ Encryption
-    # =======================================================
-    @staticmethod
-    def encrypt_sensitive_fields(farmer: dict) -> dict:
+    
+    async def _check_duplicate_nrc(self, nrc: str) -> None:
         """
-        Encrypt NRC number and store secure hash.
-        Removes plaintext NRC before saving to DB.
+        Check if NRC already exists in database.
+        
+        Args:
+            nrc: NRC number to check
+        
+        Raises:
+            HTTPException: If NRC already exists
         """
-        nrc_value = farmer.get("nrc_number")
-        if nrc_value:
-            farmer["nrc_encrypted"] = encrypt_deterministic(nrc_value)
-            farmer["nrc_hash"] = hmac_hash(nrc_value)
-            farmer.pop("nrc_number", None)
-
-        return farmer
+        nrc_hash = hmac_hash(nrc, salt="nrc")
+        existing = await self.collection.find_one({"nrc_hash": nrc_hash})
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Farmer with NRC {nrc} already exists (Farmer ID: {existing['farmer_id']})"
+            )
+    
+    async def _generate_unique_farmer_id(self) -> str:
+        """
+        Generate a unique farmer ID with collision detection.
+        
+        Returns:
+            str: Unique farmer ID (e.g., ZM1A2B3C4D)
+        """
+        max_attempts = 10
+        
+        for _ in range(max_attempts):
+            farmer_id = generate_farmer_id()
+            
+            # Check if ID already exists
+            existing = await self.collection.find_one({"farmer_id": farmer_id})
+            
+            if not existing:
+                return farmer_id
+        
+        # If we reach here, something is very wrong
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate unique farmer ID after multiple attempts"
+        )
+    
+    # =======================================================
+    # 6️⃣ Statistics & Analytics
+    # =======================================================
+    async def get_statistics(self) -> Dict[str, Any]:
+        """
+        Get farmer statistics for dashboard.
+        
+        Returns:
+            Dict with farmer counts by status, district, etc.
+        """
+        total = await self.collection.count_documents({})
+        pending = await self.collection.count_documents({"registration_status": "pending"})
+        approved = await self.collection.count_documents({"registration_status": "approved"})
+        rejected = await self.collection.count_documents({"registration_status": "rejected"})
+        
+        # Aggregate by district
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$address.district_name",
+                    "count": {"$sum": 1}
+                }
+            },
+            {
+                "$sort": {"count": -1}
+            },
+            {
+                "$limit": 10
+            }
+        ]
+        
+        districts = await self.collection.aggregate(pipeline).to_list(length=10)
+        
+        return {
+            "total_farmers": total,
+            "pending": pending,
+            "approved": approved,
+            "rejected": rejected,
+            "by_district": [
+                {"district": d["_id"], "count": d["count"]} 
+                for d in districts
+            ]
+        }

@@ -1,20 +1,40 @@
-fastapi==0.95.2
-uvicorn[standard]==0.22.0
-motor==3.1.1
-pydantic==1.10.12
-python-jose==3.3.0
-passlib==1.7.4
-bcrypt==3.2.2
-python-multipart==0.0.6
-pymongo==4.4.0
-python-dotenv==1.0.0
-pycryptodome==3.20.0
+# Core FastAPI & Server
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
 
-celery[redis]==5.3.0
-redis==4.6.0
-kombu==5.3.0
+# Database - MongoDB
+motor==3.6.0
+pymongo==4.9.1
 
+# Data Validation & Serialization
+pydantic[email]==2.10.3
+email-validator
+pydantic-settings==2.6.1
 
-Pillow
-qrcode
-fpdf2
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+pycryptodome==3.21.0
+
+# File Upload & Processing
+python-multipart==0.0.20
+Pillow==11.0.0
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# QR Code Generation
+qrcode[pil]==8.0
+
+# PDF Generation
+reportlab==4.2.5
+fpdf2==2.8.1
+
+# HTTP Client
+httpx==0.28.1
+
+# Task Queue (Optional - if using background tasks)
+celery[redis]==5.4.0
+redis==5.2.0
+kombu==5.4.2

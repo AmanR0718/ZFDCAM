@@ -1,7 +1,7 @@
-// frontend/src/pages/FarmerRegistrationWizard/Step4Preview.tsx
+// src/pages/FarmerRegistrationWizard/Step4Preview.tsx
 import React, { useState } from "react";
-import farmerService from "@/services/farmer.service";
-import { WizardState } from "."; // import type
+import { farmerService } from "@/services/farmer.service";
+import { WizardState } from "."; // Import type
 
 type Props = {
   data: WizardState;
@@ -11,8 +11,8 @@ type Props = {
 };
 
 export default function Step4Preview({ data, onBack, onSubmitStart, onSubmitEnd }: Props) {
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [error, setError] = useState<string>("");
+  const [success, setSuccess] = useState<string>("");
 
   const handleSubmit = async () => {
     onSubmitStart();
@@ -51,23 +51,57 @@ export default function Step4Preview({ data, onBack, onSubmitStart, onSubmitEnd 
     <div>
       <h3>Preview</h3>
       <div style={{ padding: 12, background: "#f3f4f6", borderRadius: 6 }}>
-        <div><strong>Name:</strong> {data.personal.first_name} {data.personal.last_name}</div>
-        <div><strong>Phone:</strong> {data.personal.phone_primary || "-"}</div>
-        <div style={{ marginTop: 8 }}><strong>Province:</strong> {data.address.province_name}</div>
-        <div><strong>District:</strong> {data.address.district_name}</div>
-        <div><strong>Chiefdom:</strong> {data.address.chiefdom_name || "-"}</div>
-        <div><strong>Village:</strong> {data.address.village || "-"}</div>
-        <div style={{ marginTop: 8 }}><strong>Farm size (ha):</strong> {data.farm?.size_hectares || "-"}</div>
-        <div><strong>Crops:</strong> {data.farm?.crops || "-"}</div>
+        <div>
+          <strong>Name:</strong> {data.personal.first_name} {data.personal.last_name}
+        </div>
+        <div>
+          <strong>Phone:</strong> {data.personal.phone_primary || "-"}
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <strong>Province:</strong> {data.address.province_name}
+        </div>
+        <div>
+          <strong>District:</strong> {data.address.district_name}
+        </div>
+        <div>
+          <strong>Chiefdom:</strong> {data.address.chiefdom_name || "-"}
+        </div>
+        <div>
+          <strong>Village:</strong> {data.address.village || "-"}
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <strong>Farm size (ha):</strong> {data.farm?.size_hectares || "-"}
+        </div>
+        <div>
+          <strong>Crops:</strong> {data.farm?.crops || "-"}
+        </div>
       </div>
 
-      {error && <div style={{ marginTop: 12, color: "#B91C1C" }}>{error}</div>}
-      {success && <div style={{ marginTop: 12, color: "#065F46" }}>{success}</div>}
+      {error && (
+        <div style={{ marginTop: 12, color: "#B91C1C" }} role="alert">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div style={{ marginTop: 12, color: "#065F46" }} role="status">
+          {success}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-        <button onClick={onBack} style={{ padding: 12, background: "#6B7280", color: "white", border: "none", borderRadius: 6 }}>← Back</button>
+        <button
+          onClick={onBack}
+          style={{ padding: 12, background: "#6B7280", color: "white", border: "none", borderRadius: 6 }}
+          aria-label="Back to previous step"
+        >
+          ← Back
+        </button>
         <div style={{ flex: 1 }} />
-        <button onClick={handleSubmit} style={{ padding: 12, background: "#16A34A", color: "white", border: "none", borderRadius: 6 }}>
+        <button
+          onClick={handleSubmit}
+          style={{ padding: 12, background: "#16A34A", color: "white", border: "none", borderRadius: 6 }}
+          aria-label="Submit registration"
+        >
           Submit registration
         </button>
       </div>

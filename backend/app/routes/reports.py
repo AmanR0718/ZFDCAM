@@ -1,26 +1,25 @@
-from fastapi import APIRouter, Depends, HTTPException
+# backend/app/routes/reports.py
+from fastapi import APIRouter, Depends
 from datetime import datetime, timedelta
-from app.database import get_database
+from app.database import get_db
 from app.dependencies.roles import require_role
 
-router = APIRouter(prefix="/api/reports", tags=["Reports"])
+router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 @router.get("/dashboard", dependencies=[Depends(require_role(["ADMIN"]))])
-async def dashboard_summary(db=Depends(get_database)):
+async def dashboard_summary(db=Depends(get_db)):
     """
-    Return high-level admin dashboard stats:
-      - total farmers
-      - total operators
-      - active users
-      - farmers registered this month
+    High-level admin dashboard summary:
+     - total farmers
+     - total operators
+     - active users
+     - farmers registered this month
     """
-    # Totals
     total_farmers = await db.farmers.count_documents({})
     total_operators = await db.operators.count_documents({})
     total_users = await db.users.count_documents({})
 
-    # Recent activity
     month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     farmers_this_month = await db.farmers.count_documents({"created_at": {"$gte": month_start}})
 
@@ -31,22 +30,21 @@ async def dashboard_summary(db=Depends(get_database)):
             "operators_total": total_operators,
             "users_total": total_users,
             "farmers_registered_this_month": farmers_this_month,
-        },
+        }
     }
 
 
 @router.get("/farmers-by-region", dependencies=[Depends(require_role(["ADMIN"]))])
-async def farmers_by_region(db=Depends(get_database)):
+async def farmers_by_region(db=Depends(get_db)):
     """
-    Aggregate farmer counts by province/district
-    for admin geographic analytics.
+    Aggregate farmer counts by province/district for admin geographic analytics.
     """
     pipeline = [
         {
             "$group": {
                 "_id": {
-                    "province": "$address.province",
-                    "district": "$address.district",
+                    "province": "$address.province_name",
+                    "district": "$address.district_name",
                 },
                 "count": {"$sum": 1},
             }
@@ -66,11 +64,9 @@ async def farmers_by_region(db=Depends(get_database)):
 
 
 @router.get("/operator-performance", dependencies=[Depends(require_role(["ADMIN"]))])
-async def operator_performance(db=Depends(get_database)):
+async def operator_performance(db=Depends(get_db)):
     """
-    Aggregate basic performance stats for each operator:
-      - total farmers registered
-      - recent registrations (30 days)
+    Aggregate stats per operator: total farmers registered, recent registrations (30d).
     """
     cutoff = datetime.utcnow() - timedelta(days=30)
     pipeline = [
@@ -109,10 +105,9 @@ async def operator_performance(db=Depends(get_database)):
 
 
 @router.get("/activity-trends", dependencies=[Depends(require_role(["ADMIN"]))])
-async def activity_trends(db=Depends(get_database)):
+async def activity_trends(db=Depends(get_db)):
     """
-    Simple daily registration count for past 14 days.
-    Returns an array suitable for charting.
+    Daily registration count for past 14 days for charting.
     """
     days = 14
     start = datetime.utcnow() - timedelta(days=days)

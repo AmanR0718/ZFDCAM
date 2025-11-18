@@ -1,36 +1,45 @@
-from .celery_app import celery_app
-import os
-from pymongo import MongoClient, UpdateOne
+from celery import shared_task
+from pymongo import MongoClient
 from datetime import datetime
-from ..services.farmer_service import FarmerService
+from uuid import uuid4
+from app.config import settings
+from app.services.farmer_service import FarmerService
 
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://mongo:27017")
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "zambian_farmer_db")
+
+MONGODB_URL = settings.MONGODB_URL or "mongodb://mongo:27017"
+MONGODB_DB_NAME = settings.MONGODB_DB_NAME or "zambian_farmer_db"
+
 
 def get_db_sync():
+    """Create synchronous MongoDB client for Celery tasks."""
     client = MongoClient(MONGODB_URL)
     return client[MONGODB_DB_NAME]
 
-@celery_app.task(bind=True)
+
+@shared_task(bind=True, name="app.tasks.sync_tasks.process_sync_batch")
 def process_sync_batch(self, user_email, records):
     """
-    records: list of farmer dicts (each contains temp_id optional, farmer fields)
-    returns: { "job_id": ..., "results": [ { temp_id, farmer_id, status, errors } ] }
+    Process batch sync of farmer records.
+
+    Args:
+        user_email (str): Email of the user performing the sync
+        records (List[dict]): List of farmer records (each with optional temp_id and farmer data)
+
+    Returns:
+        dict: Job ID and list of results per record with status
     """
     db = get_db_sync()
-    out_results = []
-    bulk_ops = []
-    now = datetime.utcnow()
-
-    users_coll = db.users
     farmers_coll = db.farmers
+    out_results = []
+    now = datetime.utcnow()
 
     for rec in records:
         temp_id = rec.get("temp_id")
         try:
-            # validate fields (throws HTTPException-like? we'll capture generically)
+            # 1. Validate data fields - raises HTTPException on errors
             FarmerService.validate_farmer_data(rec)
-            # encrypt sensitive fields
+
+            # 2. Encrypt sensitive fields (e.g., NRC)
             rec = FarmerService.encrypt_sensitive_fields(rec)
         except Exception as e:
             out_results.append({
@@ -41,10 +50,7 @@ def process_sync_batch(self, user_email, records):
             })
             continue
 
-        # Deduplication logic:
-        # priority 1: temp_id (if server has a record with this temp_id)
-        # priority 2: nrc_hash (if present)
-        # priority 3: phone_primary
+        # 3. Deduplication query logic
         query = {}
         if temp_id:
             query = {"temp_id": temp_id}
@@ -53,13 +59,10 @@ def process_sync_batch(self, user_email, records):
         elif rec.get("personal_info", {}).get("phone_primary"):
             query = {"personal_info.phone_primary": rec["personal_info"]["phone_primary"]}
 
-        if query:
-            existing = farmers_coll.find_one(query)
-        else:
-            existing = None
+        existing = farmers_coll.find_one(query) if query else None
 
         if existing:
-            # update existing
+            # 4. Update existing record
             rec["updated_at"] = now
             rec["last_modified_by"] = user_email
             farmers_coll.update_one({"_id": existing["_id"]}, {"$set": rec})
@@ -70,9 +73,8 @@ def process_sync_batch(self, user_email, records):
                 "errors": []
             })
         else:
-            # create a new farmer_id if not present (generate simple id)
-            import uuid
-            rec["farmer_id"] = rec.get("farmer_id") or ("ZM" + uuid.uuid4().hex[:8].upper())
+            # 5. Create new farmer record with generated farmer_id if none provided
+            rec["farmer_id"] = rec.get("farmer_id") or ("ZM" + uuid4().hex[:8].upper())
             rec["created_at"] = now
             rec["created_by"] = user_email
             farmers_coll.insert_one(rec)

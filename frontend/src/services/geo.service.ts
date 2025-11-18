@@ -1,22 +1,21 @@
-import axios from "axios";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+// src/services/geo.service.ts
+import axiosClient from "@/utils/axios";
 
 const geoService = {
   async provinces() {
-    const { data } = await axios.get(`${API_BASE}/api/geo/provinces`);
+    const { data } = await axiosClient.get("/geo/provinces");
     return data;
   },
 
   async districts(province_id?: string) {
-    const { data } = await axios.get(`${API_BASE}/api/geo/districts`, {
+    const { data } = await axiosClient.get("/geo/districts", {
       params: province_id ? { province_id } : {},
     });
     return data;
   },
 
   async chiefdoms(district_id?: string) {
-    const { data } = await axios.get(`${API_BASE}/api/geo/chiefdoms`, {
+    const { data } = await axiosClient.get("/geo/chiefdoms", {
       params: district_id ? { district_id } : {},
     });
     return data;

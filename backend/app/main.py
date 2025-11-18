@@ -1,113 +1,154 @@
-
-# backend/app/main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import settings
-from app.database import close_database
-import os 
-import re
-from fastapi.responses import JSONResponse  
-from fastapi.requests import Request
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
-# Routers
-from app.routes import auth, farmers, sync, uploads, farmers_qr, health, users, geo
+import logging
+import os
 
+# Import configuration and database
+from app.config import settings
+from app.database import connect_to_database, close_database_connection
 
-# ------------------------------------
-# Initialize app
-# ------------------------------------
+# Import routers
+from app.routes import (
+    auth,
+    farmers,
+    sync,
+    uploads,
+    farmers_qr,
+    health,
+    users,
+    geo,
+    operators,
+    dashboard,
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# ============================================
+# Application Lifespan Management
+# ============================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 Starting Zambian Farmer System API...")
+    await connect_to_database()
+    logger.info("✅ Application startup complete")
+    yield
+    logger.info("🧹 Shutting down application...")
+    await close_database_connection()
+    logger.info("✅ Application shutdown complete")
+
+# ============================================
+# Initialize FastAPI Application
+# ============================================
 app = FastAPI(
     title="Zambian Farmer System API",
     description="Backend API for Zambian Farmer Registration & Support System",
-    version="1.5",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
+    redirect_slashes=False,  # Prevent automatic trailing slash redirects
 )
 
-# ------------------------------------
+# ============================================
 # CORS Configuration
-# ------------------------------------
-# backend/app/main.py
-frontend_origin_env = os.getenv("FRONTEND_ORIGIN", "")
+# ============================================
+
 allowed_origins = [
     "http://localhost:5173",
+    "http://localhost:8000",
+    "http://localhost:3000",
     "http://127.0.0.1:5173",
-    "https://localhost:5173",
-    "https://127.0.0.1:5173",
-    "https://glowing-fishstick-xg76vqgjxxph67ww-5173.app.github.dev",
+    "http://127.0.0.1:8000",
+    "http://127.0.0.1:3000",
 ]
 
+frontend_origin_env = os.getenv("FRONTEND_ORIGIN", "")
 if frontend_origin_env:
     allowed_origins.append(frontend_origin_env)
 
-# ✅ Apply both exact list and regex for Codespaces
+allow_origin_regex = r"^https:\/\/[-a-z0-9]+-(5173|8000|3000)\.app\.github\.dev$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https:\/\/[-a-z0-9]+-(5173|8000)\.app\.github\.dev$",
     allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
+# Extra CORS handling for Codespaces
 class EnsureCORSHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
+    async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        origin = request.headers.get("origin")
+        origin = request.headers.get("origin", "")
         if origin and (
-            origin.endswith("-5173.app.github.dev") or
-            origin.endswith("-8000.app.github.dev") or
-            "localhost" in origin
+            origin.endswith(".app.github.dev")
+            or "localhost" in origin
+            or "127.0.0.1" in origin
         ):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,PATCH,OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "*"
         return response
 
 app.add_middleware(EnsureCORSHeadersMiddleware)
 
-# ------------------------------------
-# Register Routers
-# ------------------------------------
-app.include_router(health.router)
-app.include_router(sync.router)
-app.include_router(auth.router)
-app.include_router(farmers.router)
-app.include_router(uploads.router)
-app.include_router(users.router)
-app.include_router(farmers_qr.router)
-app.include_router(geo.router, prefix="/api/geo", tags=["geo"])
+# ============================================
+# Register API Routers
+# ============================================
 
-@app.options("/{rest_of_path:path}")
-async def preflight_handler(request: Request, rest_of_path: str):
-    """Handle preflight requests explicitly (for Codespaces CORS)"""
-    origin = request.headers.get("origin")
-    response = JSONResponse(content={"message": "CORS preflight OK"})
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-    response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Authorization,Content-Type"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
-# ------------------------------------
-# Lifecycle events
-# ------------------------------------
-@app.on_event("startup")
-async def startup_event():
-    print("🚀 Application startup complete.")
-    # Mongo connection will auto-init on first DB access
+# IMPORTANT FIX:
+# All routers declared with prefix="/auth", "/farmers", etc.
+# MUST be mounted under ONE prefix: "/api"
 
+app.include_router(auth.router, prefix="/api", tags=["Authentication"])
+app.include_router(users.router, prefix="/api", tags=["Users"])
+app.include_router(farmers.router, prefix="/api", tags=["Farmers"])
+app.include_router(geo.router, prefix="/api", tags=["Geography"])
+app.include_router(operators.router, prefix="/api", tags=["Operators"])
+app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
+app.include_router(uploads.router, prefix="/api", tags=["Uploads"])
+app.include_router(sync.router, prefix="/api", tags=["Synchronization"])
+app.include_router(farmers_qr.router, prefix="/api", tags=["Farmers QR"])
+app.include_router(health.router, prefix="/api/health", tags=["Health"])
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    await close_database()
-    print("🧹 MongoDB connection closed.")
+logger.info("✅ All API routers registered")
 
-
-# ------------------------------------
-# Root Route
-# ------------------------------------
-@app.get("/")
+# ============================================
+# Root Endpoint
+# ============================================
+@app.get("/", tags=["Root"])
 async def root():
-    return {"message": "Zambian Farmer System API is running", "status": "ok"}
+    return {
+        "message": "Zambian Farmer System API",
+        "status": "running",
+        "version": "2.0.0",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+# ============================================
+# Global Exception Handler
+# ============================================
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "message": str(exc) if settings.DEBUG else "An error occurred"
+        }
+    )

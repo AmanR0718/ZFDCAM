@@ -1,58 +1,157 @@
 # backend/app/config.py
-from pydantic import BaseSettings, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+from typing import List
 import os
 
 
 class Settings(BaseSettings):
+    """
+    Application settings with environment variable support.
+    Uses pydantic-settings for Pydantic v2 compatibility.
+    """
+    
     # ======================================
-    # MongoDB
+    # MongoDB Configuration
     # ======================================
-    MONGODB_URL: str = Field(..., env="MONGODB_URL")
-    MONGODB_DB_NAME: str = Field(..., env="MONGODB_DB_NAME")
-
-    # ======================================
-    # JWT + Security
-    # ======================================
-    JWT_SECRET: str = Field(..., env="JWT_SECRET")
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    SECRET_KEY: str = Field(..., env="SECRET_KEY")
-
-    # ======================================
-    # Redis / Celery
-    # ======================================
-    REDIS_URL: str = Field(default="redis://farmer-redis:6379/0", env="REDIS_URL")
-
-    # ======================================
-    # Admin Seeder
-    # ======================================
-    SEED_ADMIN_EMAIL: str = Field(..., env="SEED_ADMIN_EMAIL")
-    SEED_ADMIN_PASSWORD: str = Field(..., env="SEED_ADMIN_PASSWORD")
-
-    # ======================================
-    # Application settings
-    # ======================================
-    DEBUG: bool = Field(default=True)
-    UPLOAD_DIR: str = Field(default="/app/uploads", env="UPLOAD_DIR")
-    MAX_UPLOAD_SIZE_MB: int = Field(default=10)
-    CORS_ORIGINS: list[str] = Field(
-        default=["http://localhost:8000", "http://localhost:5173", "*"]
+    MONGODB_URL: str = Field(
+        ..., 
+        description="MongoDB connection string (mongodb+srv://...)"
+    )
+    MONGODB_DB_NAME: str = Field(
+        default="zambian_farmer_db",
+        description="MongoDB database name"
     )
 
-    class Config:
-        env_file = os.path.join(os.path.dirname(__file__), "../.env")
-        env_file_encoding = "utf-8"
+    # ======================================
+    # JWT & Security
+    # ======================================
+    JWT_SECRET: str = Field(
+        ..., 
+        description="Secret key for JWT token signing"
+    )
+    JWT_ALGORITHM: str = Field(
+        default="HS256",
+        description="JWT signing algorithm"
+    )
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=30,
+        description="Access token expiration time in minutes"
+    )
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(
+        default=7,
+        description="Refresh token expiration time in days"
+    )
+    SECRET_KEY: str = Field(
+        ..., 
+        description="Secret key for encryption operations"
+    )
+
+    # ======================================
+    # Redis / Celery (Background Tasks)
+    # ======================================
+    REDIS_URL: str = Field(
+        default="redis://farmer-redis:6379/0",
+        description="Redis connection URL for Celery"
+    )
+
+    # ======================================
+    # Admin Seeder Credentials
+    # ======================================
+    SEED_ADMIN_EMAIL: str = Field(
+        ..., 
+        description="Email for seeded admin account"
+    )
+    SEED_ADMIN_PASSWORD: str = Field(
+        ..., 
+        description="Password for seeded admin account"
+    )
+
+    # ======================================
+    # Application Settings
+    # ======================================
+    DEBUG: bool = Field(
+        default=False,
+        description="Enable debug mode (set to False in production)"
+    )
+    ENVIRONMENT: str = Field(
+        default="development",
+        description="Environment: development, staging, production"
+    )
+    UPLOAD_DIR: str = Field(
+        default="/app/uploads",
+        description="Base directory for file uploads"
+    )
+    MAX_UPLOAD_SIZE_MB: int = Field(
+        default=10,
+        description="Maximum file upload size in megabytes"
+    )
+    
+    # ======================================
+    # CORS Configuration
+    # ======================================
+    CORS_ORIGINS: List[str] = Field(
+        default=[
+            "http://localhost:8000",
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:8000",
+            "http://127.0.0.1:5173",
+        ],
+        description="Allowed CORS origins (do NOT use '*' in production)"
+    )
+    CORS_ALLOW_CREDENTIALS: bool = Field(
+        default=True,
+        description="Allow credentials in CORS requests"
+    )
+    CORS_ALLOW_METHODS: List[str] = Field(
+        default=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        description="Allowed HTTP methods for CORS"
+    )
+    CORS_ALLOW_HEADERS: List[str] = Field(
+        default=["*"],
+        description="Allowed headers for CORS"
+    )
+
+    # ======================================
+    # File Upload Settings
+    # ======================================
+    ALLOWED_IMAGE_EXTENSIONS: List[str] = Field(
+        default=["jpg", "jpeg", "png"],
+        description="Allowed image file extensions"
+    )
+    ALLOWED_DOCUMENT_EXTENSIONS: List[str] = Field(
+        default=["pdf", "doc", "docx"],
+        description="Allowed document file extensions"
+    )
+
+    # ======================================
+    # Pydantic v2 Configuration
+    # ======================================
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",  # Ignore extra environment variables
+        validate_default=True,
+    )
 
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Cached settings loader"""
+    """
+    Cached settings loader - ensures settings are loaded only once.
+    
+    Returns:
+        Settings: Application settings instance
+    """
     return Settings()
 
 
+# Global settings instance
 settings = get_settings()
+
 # Usage:
 # from app.config import settings
-# print(settings.MONGODB_URL)   
+# print(settings.MONGODB_URL)
