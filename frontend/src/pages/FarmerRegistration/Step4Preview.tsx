@@ -8,11 +8,17 @@ type Props = {
   onBack: () => void;
   onSubmitStart: () => void;
   onSubmitEnd: () => void;
+  onSuccess: (farmerId: string) => void;
 };
 
-export default function Step4Preview({ data, onBack, onSubmitStart, onSubmitEnd }: Props) {
+export default function Step4Preview({
+  data,
+  onBack,
+  onSubmitStart,
+  onSubmitEnd,
+  onSuccess,
+}: Props) {
   const [error, setError] = useState<string>("");
-  const [success, setSuccess] = useState<string>("");
 
   // Helper to convert empty string to undefined for optional fields
   const cleanOptionalField = (value: string | undefined): string | undefined => {
@@ -28,7 +34,6 @@ export default function Step4Preview({ data, onBack, onSubmitStart, onSubmitEnd 
   const handleSubmit = async () => {
     onSubmitStart();
     setError("");
-    setSuccess("");
     try {
       const payload: any = {
         personal_info: {
@@ -75,7 +80,11 @@ export default function Step4Preview({ data, onBack, onSubmitStart, onSubmitEnd 
 
       console.log("Submitting payload:", JSON.stringify(payload, null, 2));
       const res = await farmerService.create(payload);
-      setSuccess(`Created: ${res.farmer_id || "OK"}`);
+      if (res.farmer_id) {
+        onSuccess(res.farmer_id);
+      } else {
+        setError("Failed to get farmer ID after creation.");
+      }
     } catch (err: any) {
       console.error("Full error object:", err);
       console.error("Error response:", err.response);
@@ -159,11 +168,6 @@ export default function Step4Preview({ data, onBack, onSubmitStart, onSubmitEnd 
           {error}
         </div>
       )}
-      {success && (
-        <div style={{ marginTop: 12, color: "#065F46" }} role="status">
-          {success}
-        </div>
-      )}
 
       <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
         <button
@@ -179,7 +183,7 @@ export default function Step4Preview({ data, onBack, onSubmitStart, onSubmitEnd 
           style={{ padding: 12, background: "#16A34A", color: "white", border: "none", borderRadius: 6 }}
           aria-label="Submit registration"
         >
-          Submit registration
+          Create Farmer & Continue
         </button>
       </div>
     </div>

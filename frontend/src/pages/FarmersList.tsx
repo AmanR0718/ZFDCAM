@@ -6,11 +6,15 @@ import { farmerService } from "@/services/farmer.service";
 interface Farmer {
   _id: string;
   farmer_id: string;
-  first_name: string;
-  last_name: string;
-  phone_primary: string;
-  village?: string;
-  district_name?: string;
+  personal_info?: {
+    first_name?: string;
+    last_name?: string;
+    phone_primary?: string;
+  };
+  address?: {
+    village?: string;
+    district_name?: string;
+  };
   registration_status?: string;
   created_at?: string;
 }
@@ -26,16 +30,35 @@ export default function FarmersList() {
     setLoading(true);
     setError("");
     try {
-      const data = await farmerService.getFarmers(100, 0); // Fetch up to 100 farmers
-      // Normalize response data into array of farmers
-      const farmerList = Array.isArray(data.results)
-        ? data.results
-        : Array.isArray(data)
-        ? data
-        : [];
-      setFarmers(farmerList);
+      const data = await farmerService.getFarmers(100, 0);
+      
+      let farmerList = [];
+      if (data.results && Array.isArray(data.results)) {
+        farmerList = data.results;
+      } else if (data.farmers && Array.isArray(data.farmers)) {
+        farmerList = data.farmers;
+      } else if (Array.isArray(data)) {
+        farmerList = data;
+      }
+      
+      const mappedFarmers = farmerList.map((f: any) => ({
+        _id: f._id || f.id,
+        farmer_id: f.farmer_id,
+        personal_info: f.personal_info || {
+          first_name: f.first_name,
+          last_name: f.last_name,
+          phone_primary: f.phone_primary,
+        },
+        address: f.address || {},
+        registration_status: f.registration_status,
+        created_at: f.created_at,
+      }));
+      
+      setFarmers(mappedFarmers);
     } catch (err: any) {
-      console.error(err);
+      if (import.meta.env.DEV) {
+        console.error("Fetch error:", err);
+      }
       setError(err.response?.data?.detail || "Failed to load farmers");
     } finally {
       setLoading(false);
@@ -146,7 +169,7 @@ export default function FarmersList() {
             No farmers
           </div>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }} aria-label="Farmers list">
+          <table style={{ width: "100%", borderCollapse: "collapse", backgroundColor: "white" }} aria-label="Farmers list">
             <thead style={{ backgroundColor: "#F3F4F6" }}>
               <tr>
                 <th style={{ padding: "15px", textAlign: "left" }}>#</th>
@@ -164,13 +187,13 @@ export default function FarmersList() {
                 >
                   <td style={{ padding: "15px" }}>{i + 1}</td>
                   <td style={{ padding: "15px", fontWeight: "bold" }}>
-                    {f.first_name || "-"}
+                    {f.personal_info?.first_name || "-"}
                   </td>
                   <td style={{ padding: "15px" }}>
-                    {f.last_name || "-"}
+                    {f.personal_info?.last_name || "-"}
                   </td>
                   <td style={{ padding: "15px" }}>
-                    {f.phone_primary || "-"}
+                    {f.personal_info?.phone_primary || "-"}
                   </td>
                   <td
                     style={{
@@ -180,27 +203,49 @@ export default function FarmersList() {
                     }}
                   >
                     <button
+                      onClick={() => navigate(`/farmers/${f.farmer_id}`)}
+                      aria-label={`View farmer ${f.personal_info?.first_name}`}
+                      style={{
+                        color: "#16A34A",
+                        border: "none",
+                        background: "transparent",
+                        cursor: "pointer",
+                        fontWeight: "bold",
+                        fontSize: "18px",
+                      }}
+                      title="View Details"
+                    >
+                      👁️
+                    </button>
+                    <button
                       onClick={() => navigate(`/farmers/edit/${f.farmer_id}`)}
-                      aria-label={`Edit farmer ${f.first_name}`}
+                      aria-label={`Edit farmer ${f.personal_info?.first_name}`}
                       style={{
                         color: "#2563EB",
                         border: "none",
                         background: "transparent",
                         cursor: "pointer",
                         fontWeight: "bold",
+                        fontSize: "18px",
                       }}
+                      title="Edit"
                     >
                       ✏️
                     </button>
                     <button
-                      onClick={() => handleDelete(f.farmer_id, `${f.first_name} ${f.last_name}`)}
-                      aria-label={`Delete farmer ${f.first_name}`}
+                      onClick={() => handleDelete(
+                        f.farmer_id, 
+                        `${f.personal_info?.first_name || ""} ${f.personal_info?.last_name || ""}`.trim() || "Unknown"
+                      )}
+                      aria-label={`Delete farmer ${f.personal_info?.first_name}`}
                       style={{
                         color: "#DC2626",
                         border: "none",
                         background: "transparent",
                         cursor: "pointer",
+                        fontSize: "18px",
                       }}
+                      title="Delete"
                     >
                       🗑️
                     </button>

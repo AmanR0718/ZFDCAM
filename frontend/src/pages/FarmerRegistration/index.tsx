@@ -1,10 +1,12 @@
-// src/pages/FarmerRegistrationWizard/index.tsx
+// src/pages/FarmerRegistration/index.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Step1Personal from "./Step1Personal";
 import Step2Address from "./Step2Address";
 import Step3Farm from "./Step3Farm";
 import Step4Preview from "./Step4Preview";
+import Step5PhotoUpload from "./Step5PhotoUpload";
+import Step6DocumentUpload from "./Step6DocumentUpload";
 
 export type WizardState = {
   personal: {
@@ -50,6 +52,7 @@ export default function FarmerRegistrationWizard() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<WizardState>(initialState);
   const [loading, setLoading] = useState(false);
+  const [newFarmerId, setNewFarmerId] = useState<string | null>(null);
 
   const update = <K extends keyof WizardState>(
     section: K,
@@ -98,7 +101,7 @@ export default function FarmerRegistrationWizard() {
           </button>
           <div>
             <h2 style={{ margin: 0 }}>New Farmer — Registration</h2>
-            <div style={{ marginTop: 8, color: "#666" }}>Step {step} / 4</div>
+            <div style={{ marginTop: 8, color: "#666" }}>Step {step} / 6</div>
           </div>
         </div>
 
@@ -144,6 +147,31 @@ export default function FarmerRegistrationWizard() {
             onBack={() => setStep(3)}
             onSubmitStart={() => setLoading(true)}
             onSubmitEnd={() => setLoading(false)}
+            onSuccess={(farmerId) => {
+              setNewFarmerId(farmerId);
+              setStep(5);
+            }}
+          />
+        )}
+
+        {/* Step 5: Photo Upload */}
+        {step === 5 && newFarmerId && (
+          <Step5PhotoUpload
+            farmerId={newFarmerId}
+            onBack={() => setStep(4)}
+            onNext={() => setStep(6)}
+          />
+        )}
+
+        {/* Step 6: Document Upload */}
+        {step === 6 && newFarmerId && (
+          <Step6DocumentUpload
+            farmerId={newFarmerId}
+            onBack={() => setStep(5)}
+            onComplete={() => {
+              alert("✅ Farmer registration complete!");
+              navigate(`/farmers/${newFarmerId}`); // Navigate to the new farmer's detail page
+            }}
           />
         )}
 

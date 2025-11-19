@@ -1,5 +1,5 @@
 // src/services/farmer.service.ts
-import axiosClient from "@/utils/axios";
+import api from "@/utils/axios";
 
 export const farmerService = {
   /**
@@ -7,7 +7,7 @@ export const farmerService = {
    * Backend: GET /api/farmers?limit=10&skip=0
    */
   async getFarmers(limit = 10, skip = 0) {
-    const { data } = await axiosClient.get("/farmers/", { params: { limit, skip } });
+    const { data } = await api.get("/farmers/", { params: { limit, skip } });
     return data;
   },
 
@@ -17,7 +17,7 @@ export const farmerService = {
    */
   async getFarmer(farmerId: string) {
     if (!farmerId) throw new Error("Missing farmerId");
-    const { data } = await axiosClient.get(`/farmers/${farmerId}`);
+    const { data } = await api.get(`/farmers/${farmerId}`);
     return data;
   },
 
@@ -27,7 +27,7 @@ export const farmerService = {
    */
   async create(farmerData: Record<string, any>) {
     if (!farmerData) throw new Error("Missing farmer data");
-    const { data } = await axiosClient.post("/farmers/", farmerData);
+    const { data } = await api.post("/farmers/", farmerData);
     return data;
   },
 
@@ -38,7 +38,7 @@ export const farmerService = {
   async update(farmerId: string, farmerData: Record<string, any>) {
     if (!farmerId) throw new Error("Missing farmerId");
     if (!farmerData) throw new Error("Missing farmer data");
-    const { data } = await axiosClient.put(`/farmers/${farmerId}`, farmerData);
+    const { data } = await api.put(`/farmers/${farmerId}`, farmerData);
     return data;
   },
 
@@ -48,7 +48,7 @@ export const farmerService = {
    */
   async delete(farmerId: string) {
     if (!farmerId) throw new Error("Missing farmerId");
-    const { data } = await axiosClient.delete(`/farmers/${farmerId}`);
+    const { data } = await api.delete(`/farmers/${farmerId}`);
     return data;
   },
 
@@ -56,40 +56,80 @@ export const farmerService = {
    * Upload a farmer’s photo.
    * Backend: POST /api/farmers/{farmer_id}/upload-photo
    */
-  async uploadPhoto(farmerId: string, file: File) {
-    if (!file) throw new Error("Missing file for upload");
+  async uploadPhoto(farmerId: string, file: File): Promise<any> {
     const formData = new FormData();
     formData.append("file", file);
-
-    const { data } = await axiosClient.post(
+    const response = await api.post(
       `/farmers/${farmerId}/upload-photo`,
       formData,
       { headers: { "Content-Type": "multipart/form-data" } }
     );
-    return data;
+    return response.data;
+  },
+
+  /**
+   * Upload a farmer’s document.
+   * Backend: POST /api/farmers/{farmer_id}/upload-document
+   */
+  async uploadDocument(
+    farmerId: string,
+    docType: "nrc" | "land_title" | "license" | "certificate",
+    file: File
+  ): Promise<any> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await api.post(
+      `/farmers/${farmerId}/documents/${docType}`,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+    return response.data;
+  },
+
+  /**
+   * Delete a farmer’s photo.
+   * Backend: DELETE /api/farmers/{farmer_id}/photo
+   */
+  async deletePhoto(farmerId: string): Promise<any> {
+    const response = await api.delete(`/farmers/${farmerId}/photo`);
+    return response.data;
+  },
+
+  /**
+   * Delete a farmer’s document.
+   * Backend: DELETE /api/farmers/{farmer_id}/documents/{doc_type}
+   */
+  async deleteDocument(farmerId: string, docType: string): Promise<any> {
+    const response = await api.delete(
+      `/farmers/${farmerId}/documents/${docType}`
+    );
+    return response.data;
   },
 
   /**
    * Trigger background ID-card generation.
    * Backend: POST /api/farmers/{farmer_id}/generate-idcard
    */
-  async generateIDCard(farmerId: string) {
-    if (!farmerId) throw new Error("Missing farmerId");
-    const { data } = await axiosClient.post(`/farmers/${farmerId}/generate-idcard`);
-    return data;
+  async generateIDCard(farmerId: string): Promise<any> {
+    const response = await api.post(`/farmers/${farmerId}/generate-id-card`);
+    return response.data;
   },
 
   /**
    * Download an existing farmer ID card (PDF blob).
    * Backend: GET /api/farmers/{farmer_id}/download-idcard
    */
-  async downloadIDCard(farmerId: string) {
-    if (!farmerId) throw new Error("Missing farmerId");
-    const response = await axiosClient.get(
-      `/farmers/${farmerId}/download-idcard`,
-      { responseType: "blob" }
-    );
-    return response.data; // The PDF blob
+  async downloadIDCard(farmerId: string): Promise<void> {
+    const response = await api.get(`/farmers/${farmerId}/id-card`, {
+      responseType: "blob",
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `${farmerId}_id_card.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   },
 
   /**
@@ -104,8 +144,17 @@ export const farmerService = {
     if (!payload?.farmer_id || !payload?.timestamp || !payload?.signature) {
       throw new Error("Invalid QR payload");
     }
-    const { data } = await axiosClient.post("/farmers/verify-qr", payload);
+    const { data } = await api.post("/farmers/verify-qr", payload);
     return data;
+  },
+
+  /**
+   * Get a farmer’s QR code URL.
+   * Backend: GET /api/farmers/{farmer_id}/qr
+   */
+  getQRCode(farmerId: string): string {
+    const baseURL = api.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    return `${baseURL}/farmers/${farmerId}/qr`;
   },
 };
 
