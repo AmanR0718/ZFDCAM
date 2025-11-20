@@ -1,6 +1,5 @@
 // src/pages/FarmerRegistration/index.tsx
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import Step1Personal from "./Step1Personal";
 import Step2Address from "./Step2Address";
 import Step3Farm from "./Step3Farm";
@@ -19,6 +18,8 @@ export type WizardState = {
     nrc?: string;
     date_of_birth?: string;
     gender?: string;
+    marital_status?: string;
+    education_level?: string;
     ethnic_group?: string;
   };
   address: {
@@ -32,24 +33,36 @@ export type WizardState = {
   };
   farm?: {
     size_hectares?: string;
-    crops?: string;
-    livestock?: string;
-    has_irrigation?: boolean;
-    years_farming?: string;
+    land_tenure?: string;
+    soil_type?: string;
+    crops?: string[];
+    livestock?: {
+        cattle: number;
+        goats: number;
+        pigs: number;
+        poultry: number;
+    };
     household_size?: string;
-    dependents?: string;
     primary_income?: string;
+    financial_services?: string[];
+    vulnerability?: string[];
   };
 };
 
 const initialState: WizardState = {
   personal: {},
   address: {},
-  farm: {},
+  farm: {
+    crops: [],
+    livestock: { cattle: 0, goats: 0, pigs: 0, poultry: 0 },
+    financial_services: [],
+    vulnerability: [],
+  },
 };
 
+const stepTitles = ["Bio-Data", "Location", "Farm Profile", "Socio-Econ", "Photo", "Documents", "Complete"];
+
 export default function FarmerRegistrationWizard() {
-  const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
   const [form, setForm] = useState<WizardState>(initialState);
   const [loading, setLoading] = useState(false);
@@ -66,73 +79,38 @@ export default function FarmerRegistrationWizard() {
     }));
   };
 
-  const handleStep4Complete = async (formValues: any) => {
-    try {
-      // const response = await farmerService.create(formValues);
-      setNewFarmerId("123"); // response.farmer_id
-      setFarmerName(
-        `${formValues.personal_info.first_name} ${formValues.personal_info.last_name}`
-      );
-      setCurrentStep(5);
-    } catch (err: any) {
-      // ...existing error handling...
-    }
-  };
-
   const handleStep6Complete = () => {
     setCurrentStep(7);
   };
 
-  return (
-    <div
-      style={{ minHeight: "100vh", backgroundColor: "#f9fafb", padding: "20px" }}
-    >
-      <div
-        style={{
-          maxWidth: "900px",
-          margin: "0 auto",
-          backgroundColor: "white",
-          borderRadius: "12px",
-          padding: "40px",
-          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-        }}
-      >
-        {/* Progress Bar */}
-        <div style={{ marginBottom: "40px" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginBottom: "12px",
-            }}
-          >
-            {[1, 2, 3, 4, 5, 6, 7].map((step) => (
-              <div
-                key={step}
-                style={{
-                  flex: 1,
-                  height: "8px",
-                  backgroundColor:
-                    currentStep >= step ? "#2563EB" : "#E5E7EB",
-                  marginRight: step < 7 ? "8px" : "0",
-                  borderRadius: "4px",
-                  transition: "background-color 0.3s",
-                }}
-              />
-            ))}
-          </div>
-          <p
-            style={{
-              textAlign: "center",
-              color: "#6B7280",
-              fontSize: "14px",
-              fontWeight: "500",
-            }}
-          >
-            Step {currentStep} of 7
-          </p>
-        </div>
+  const getWizardStepClass = (step: number) => {
+    if (step < currentStep) return "wizard-done";
+    if (step === currentStep) return "wizard-active";
+    return "wizard-pending";
+  }
 
+  const visibleSteps = 4;
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      {/* Wizard Header */}
+      {currentStep <= visibleSteps && (
+        <div className="flex justify-between items-center mb-8 px-8">
+          {[...Array(visibleSteps)].map((_, i) => (
+            <React.Fragment key={i}>
+              <div className="flex flex-col items-center">
+                <div className={`wizard-step ${getWizardStepClass(i + 1)}`}>{i + 1}</div>
+                <span className={`text-xs mt-2 font-bold ${i + 1 <= currentStep ? 'text-green-800' : 'text-gray-500'}`}>{stepTitles[i]}</span>
+              </div>
+              {i < visibleSteps - 1 && <div className="h-1 bg-gray-300 flex-1 mx-2 mt-[-20px]"></div>}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+
+
+      {/* Form Container */}
+      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
         {/* Step Content */}
         {currentStep === 1 && (
           <Step1Personal
@@ -171,6 +149,7 @@ export default function FarmerRegistrationWizard() {
             onSubmitEnd={() => setLoading(false)}
             onSuccess={(farmerId) => {
               setNewFarmerId(farmerId);
+              setFarmerName(`${form.personal.first_name} ${form.personal.last_name}`);
               setCurrentStep(5);
             }}
           />
@@ -193,25 +172,9 @@ export default function FarmerRegistrationWizard() {
           <Step7Completion farmerId={newFarmerId} farmerName={farmerName} />
         )}
 
-        {/* Footer Tip */}
-        <div style={{ marginTop: 16, color: "#999", fontSize: 13 }}>
-          Tip: Fields marked with * are required. Use the back button to edit
-          previous steps.
-        </div>
-
-        {/* Loading indicator */}
         {loading && (
-          <div
-            style={{
-              marginTop: 16,
-              padding: 12,
-              background: "#e3f2fd",
-              color: "#1976d2",
-              borderRadius: 6,
-              textAlign: "center",
-            }}
-          >
-            ⏳ Submitting farmer registration...
+          <div className="mt-4 p-3 bg-blue-50 text-blue-700 rounded-lg text-center">
+            Submitting farmer registration...
           </div>
         )}
       </div>

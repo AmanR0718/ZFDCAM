@@ -1,16 +1,9 @@
-// src/pages/FarmerRegistrationWizard/Step2Address.tsx
+// src/pages/FarmerRegistration/Step2Address.tsx
 import { useEffect, useState } from "react";
 import geoService from "@/services/geo.service";
+import { WizardState } from ".";
 
-type AddressData = {
-  province_code?: string;
-  province_name?: string;
-  district_code?: string;
-  district_name?: string;
-  chiefdom_code?: string;
-  chiefdom_name?: string;
-  village?: string;
-};
+type AddressData = WizardState["address"];
 
 type Props = {
   data: AddressData;
@@ -27,14 +20,7 @@ export default function Step2Address({ data, onBack, onNext }: Props) {
   const [districtCode, setDistrictCode] = useState(data?.district_code || "");
   const [chiefdomCode, setChiefdomCode] = useState(data?.chiefdom_code || "");
   const [village, setVillage] = useState(data?.village || "");
-  const [customProvince, setCustomProvince] = useState("");
-  const [showCustomProvince, setShowCustomProvince] = useState(false);
-  const [customDistrict, setCustomDistrict] = useState("");
-  const [showCustomDistrict, setShowCustomDistrict] = useState(false);
-  const [customChiefdom, setCustomChiefdom] = useState("");
-  const [showCustomChiefdom, setShowCustomChiefdom] = useState(false);
-
-  const [loading, setLoading] = useState(false);
+  
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -47,14 +33,7 @@ export default function Step2Address({ data, onBack, onNext }: Props) {
       setDistrictCode("");
       return;
     }
-    setLoading(true);
-    geoService
-      .districts(provinceCode)
-      .then((d) => {
-        setDistricts(d || []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    geoService.districts(provinceCode).then(d => setDistricts(d || []));
   }, [provinceCode]);
 
   useEffect(() => {
@@ -63,275 +42,80 @@ export default function Step2Address({ data, onBack, onNext }: Props) {
       setChiefdomCode("");
       return;
     }
-    setLoading(true);
-    geoService
-      .chiefdoms(districtCode)
-      .then((d) => {
-        setChiefdoms(d || []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    geoService.chiefdoms(districtCode).then(d => setChiefdoms(d || []));
   }, [districtCode]);
 
   const handleNext = () => {
-    if (showCustomProvince && !customProvince.trim()) {
-      setErr("Please enter custom province name");
+    if (!provinceCode || !districtCode) {
+      setErr("Province and District are required.");
       return;
     }
-    if (!showCustomProvince && !provinceCode) {
-      setErr("Please select a province");
-      return;
-    }
-    if (!showCustomProvince && !showCustomDistrict && !districtCode) {
-      setErr("Please select a district");
-      return;
-    }
-    if (showCustomDistrict && !customDistrict.trim()) {
-      setErr("Please enter custom district name");
-      return;
-    }
-    setErr("");
-    
-    if (showCustomProvince) {
-      onNext({
-        province_code: "OTHER",
-        province_name: customProvince.trim(),
-        district_code: "OTHER",
-        district_name: "Other",
-        chiefdom_code: "",
-        chiefdom_name: "",
-        village,
-      });
-    } else {
-      const province = provinces.find((p) => p.code === provinceCode) || { name: "" };
-      const districtName = showCustomDistrict ? customDistrict.trim() : (districts.find((d) => d.code === districtCode) || { name: "" }).name;
-      const chiefdomName = showCustomChiefdom ? customChiefdom.trim() : (chiefdoms.find((c) => c.code === chiefdomCode) || { name: "" }).name;
+    const province = provinces.find((p) => p.code === provinceCode);
+    const district = districts.find((d) => d.code === districtCode);
+    const chiefdom = chiefdoms.find((c) => c.code === chiefdomCode);
 
-      onNext({
-        province_code: provinceCode,
-        province_name: province.name,
-        district_code: showCustomDistrict ? "OTHER" : districtCode,
-        district_name: districtName,
-        chiefdom_code: showCustomChiefdom ? "OTHER" : chiefdomCode,
-        chiefdom_name: chiefdomName,
-        village,
-      });
-    }
+    onNext({
+      ...data,
+      province_code: provinceCode,
+      province_name: province?.name,
+      district_code: districtCode,
+      district_name: district?.name,
+      chiefdom_code: chiefdomCode,
+      chiefdom_name: chiefdom?.name,
+      village,
+    });
   };
 
   return (
-    <div>
-      <h3>Address & Location</h3>
-      {err && (
-        <div
-          role="alert"
-          style={{ background: "#fee", color: "#900", padding: 10, borderRadius: 6 }}
-        >
-          {err}
+    <div id="form-sec-2" className="form-section">
+        <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b">2. Geographic Data</h3>
+        {err && <div className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">{err}</div>}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+            <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Province</label>
+                <select value={provinceCode} onChange={e => setProvinceCode(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none">
+                    <option value="">Select Province</option>
+                    {provinces.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
+                </select>
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">District</label>
+                <select value={districtCode} onChange={e => setDistrictCode(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none" disabled={!provinceCode}>
+                    <option value="">Select District</option>
+                    {districts.map(d => <option key={d.code} value={d.code}>{d.name}</option>)}
+                </select>
+            </div>
         </div>
-      )}
-
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="province" style={{ fontWeight: "bold" }}>
-          Province *
-        </label>
-        <select
-          id="province"
-          value={showCustomProvince ? "OTHER" : provinceCode}
-          onChange={(e) => {
-            if (e.target.value === "OTHER") {
-              setShowCustomProvince(true);
-              setProvinceCode("");
-              setDistrictCode("");
-              setChiefdomCode("");
-              setShowCustomDistrict(false);
-              setShowCustomChiefdom(false);
-              setCustomDistrict("");
-              setCustomChiefdom("");
-            } else {
-              setShowCustomProvince(false);
-              setCustomProvince("");
-              setProvinceCode(e.target.value);
-            }
-          }}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-          aria-required="true"
-        >
-          <option value="">-- choose province --</option>
-          {provinces.map((p) => (
-            <option key={p.code} value={p.code}>
-              {p.name}
-            </option>
-          ))}
-          <option value="OTHER">Other (specify below)</option>
-        </select>
-      </div>
-
-      {showCustomProvince && (
-        <div style={{ marginTop: 12 }}>
-          <label htmlFor="customProvince" style={{ fontWeight: "bold" }}>
-            Enter Province Name *
-          </label>
-          <input
-            id="customProvince"
-            value={customProvince}
-            onChange={(e) => setCustomProvince(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-            style={{ width: "100%", padding: 10, marginTop: 6 }}
-            placeholder="Enter custom province name"
-            aria-required="true"
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+            <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Agricultural Camp</label>
+                <select value={chiefdomCode} onChange={e => setChiefdomCode(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none" disabled={!districtCode}>
+                    <option value="">Select Camp</option>
+                    {chiefdoms.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+                </select>
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Village / Zone</label>
+                <input type="text" value={village} onChange={e => setVillage(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" />
+            </div>
         </div>
-      )}
-
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="district" style={{ fontWeight: "bold" }}>
-          District *
-        </label>
-        {showCustomProvince ? (
-          <input
-            id="district"
-            value={customDistrict}
-            onChange={(e) => setCustomDistrict(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-            style={{ width: "100%", padding: 10, marginTop: 6 }}
-            placeholder="Enter custom district name"
-            aria-required="true"
-          />
-        ) : (
-          <select
-            id="district"
-            value={showCustomDistrict ? "OTHER" : districtCode}
-            onChange={(e) => {
-              if (e.target.value === "OTHER") {
-                setShowCustomDistrict(true);
-                setDistrictCode("");
-                setChiefdomCode("");
-                setShowCustomChiefdom(false);
-                setCustomChiefdom("");
-              } else {
-                setShowCustomDistrict(false);
-                setCustomDistrict("");
-                setDistrictCode(e.target.value);
-              }
-            }}
-            style={{ width: "100%", padding: 10, marginTop: 6 }}
-            aria-required="true"
-          >
-            <option value="">-- choose district --</option>
-            {districts.map((d) => (
-              <option key={d.code} value={d.code}>
-                {d.name}
-              </option>
-            ))}
-            <option value="OTHER">Other (specify below)</option>
-          </select>
-        )}
-      </div>
-
-      {showCustomDistrict && !showCustomProvince && (
-        <div style={{ marginTop: 12 }}>
-          <label htmlFor="customDistrict" style={{ fontWeight: "bold" }}>
-            Enter District Name *
-          </label>
-          <input
-            id="customDistrict"
-            value={customDistrict}
-            onChange={(e) => setCustomDistrict(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-            style={{ width: "100%", padding: 10, marginTop: 6 }}
-            placeholder="Enter custom district name"
-            aria-required="true"
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+            <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">GPS Latitude</label>
+                <input type="text" className="w-full p-2 border rounded bg-gray-50" placeholder="-15.3875" readOnly />
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">GPS Longitude</label>
+                <div className="flex gap-2">
+                    <input type="text" className="w-full p-2 border rounded bg-gray-50" placeholder="28.3228" readOnly />
+                    <button type="button" className="px-3 bg-blue-600 text-white rounded hover:bg-blue-700" title="Get Location"><i className="fa-solid fa-location-crosshairs"></i></button>
+                </div>
+            </div>
         </div>
-      )}
-
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="chiefdom" style={{ fontWeight: "bold" }}>
-          Chiefdom
-        </label>
-        {showCustomProvince ? (
-          <input
-            id="chiefdom"
-            value={customChiefdom}
-            onChange={(e) => setCustomChiefdom(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-            style={{ width: "100%", padding: 10, marginTop: 6 }}
-            placeholder="Enter custom chiefdom name"
-          />
-        ) : (
-          <select
-            id="chiefdom"
-            value={showCustomChiefdom ? "OTHER" : chiefdomCode}
-            onChange={(e) => {
-              if (e.target.value === "OTHER") {
-                setShowCustomChiefdom(true);
-                setChiefdomCode("");
-              } else {
-                setShowCustomChiefdom(false);
-                setCustomChiefdom("");
-                setChiefdomCode(e.target.value);
-              }
-            }}
-            style={{ width: "100%", padding: 10, marginTop: 6 }}
-          >
-            <option value="">-- choose chiefdom (optional) --</option>
-            {chiefdoms.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
-              </option>
-            ))}
-            <option value="OTHER">Other (specify below)</option>
-          </select>
-        )}
-      </div>
-
-      {showCustomChiefdom && !showCustomProvince && (
-        <div style={{ marginTop: 12 }}>
-          <label htmlFor="customChiefdom" style={{ fontWeight: "bold" }}>
-            Enter Chiefdom Name
-          </label>
-          <input
-            id="customChiefdom"
-            value={customChiefdom}
-            onChange={(e) => setCustomChiefdom(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-            style={{ width: "100%", padding: 10, marginTop: 6 }}
-            placeholder="Enter custom chiefdom name"
-          />
+        <div className="flex justify-between mt-8">
+            <button onClick={onBack} className="text-gray-500 font-bold hover:text-gray-700">Back</button>
+            <button onClick={handleNext} className="bg-green-700 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-800">Next Step <i className="fa-solid fa-arrow-right ml-2"></i></button>
         </div>
-      )}
-
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="village" style={{ fontWeight: "bold" }}>
-          Village / Locality
-        </label>
-        <input
-          id="village"
-          value={village}
-          onChange={(e) => setVillage(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-        />
-      </div>
-
-      <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-        <button
-          onClick={onBack}
-          style={{ padding: 12, background: "#6B7280", color: "white", border: "none", borderRadius: 6 }}
-          aria-label="Back to previous step"
-        >
-          ← Back
-        </button>
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={handleNext}
-          style={{ padding: 12, background: "#2563EB", color: "white", border: "none", borderRadius: 6 }}
-          aria-label="Next step"
-        >
-          Next →
-        </button>
-      </div>
     </div>
   );
 }

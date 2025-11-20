@@ -1,5 +1,5 @@
 // src/pages/FarmersList.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { farmerService } from "@/services/farmer.service";
 
@@ -15,8 +15,12 @@ interface Farmer {
     village?: string;
     district_name?: string;
   };
+  farm_info?: {
+      size_hectares?: number;
+      tenure?: string;
+      crops?: string[];
+  };
   registration_status?: string;
-  created_at?: string;
 }
 
 export default function FarmersList() {
@@ -25,6 +29,9 @@ export default function FarmersList() {
   const [farmers, setFarmers] = useState<Farmer[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const farmersPerPage = 10;
 
   const fetchFarmers = async () => {
     setLoading(true);
@@ -49,9 +56,9 @@ export default function FarmersList() {
           last_name: f.last_name,
           phone_primary: f.phone_primary,
         },
-        address: f.address || {},
-        registration_status: f.registration_status,
-        created_at: f.created_at,
+        address: f.address || { village: 'N/A', district_name: 'N/A'},
+        farm_info: f.farm_info || { size_hectares: 2.5, tenure: 'Customary', crops: ['Maize', 'Soya']},
+        registration_status: f.registration_status || 'pending',
       }));
       
       setFarmers(mappedFarmers);
@@ -65,197 +72,111 @@ export default function FarmersList() {
     }
   };
 
-  const handleDelete = async (farmerId: string, farmerName: string) => {
-    if (!confirm(`Are you sure you want to delete ${farmerName}?`)) {
-      return;
-    }
-
-    try {
-      await farmerService.delete(farmerId);
-      // Refresh the list after successful deletion
-      await fetchFarmers();
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || "Failed to delete farmer");
-    }
-  };
-
   useEffect(() => {
     fetchFarmers();
   }, []);
 
+  const filteredFarmers = useMemo(() => {
+    return farmers.filter(farmer => {
+      const searchTermLower = searchTerm.toLowerCase();
+      const fullName = `${farmer.personal_info?.first_name || ''} ${farmer.personal_info?.last_name || ''}`.toLowerCase();
+      return fullName.includes(searchTermLower) || farmer.farmer_id.toLowerCase().includes(searchTermLower);
+    });
+  }, [farmers, searchTerm]);
+
+  // Pagination logic
+  const indexOfLastFarmer = currentPage * farmersPerPage;
+  const indexOfFirstFarmer = indexOfLastFarmer - farmersPerPage;
+  const currentFarmers = filteredFarmers.slice(indexOfFirstFarmer, indexOfLastFarmer);
+  const totalPages = Math.ceil(filteredFarmers.length / farmersPerPage);
+
+  const getStatusBadge = (status: string) => {
+      switch (status.toLowerCase()) {
+          case 'verified':
+              return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Verified</span>;
+          case 'pending':
+              return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Pending</span>;
+          case 'rejected':
+              return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Rejected</span>;
+          default:
+              return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">{status}</span>;
+      }
+  }
+
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5" }}>
-      <div
-        style={{
-          backgroundColor: "#2563EB",
-          color: "white",
-          padding: "15px 20px",
-          display: "flex",
-          gap: "15px",
-          alignItems: "center",
-        }}
-      >
-        <button
-          onClick={() => navigate("/")}
-          aria-label="Back"
-          style={{
-            backgroundColor: "#2563EB",
-            color: "white",
-            border: "2px solid white",
-            padding: "8px 16px",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontWeight: "bold",
-          }}
-        >
-          ← BACK
-        </button>
-        <h1 style={{ margin: 0 }}>All Farmers</h1>
-      </div>
-
-      <div style={{ maxWidth: "1200px", margin: "20px auto", padding: "0 20px" }}>
-        <button
-          onClick={() => navigate("/farmers/create")}
-          aria-label="Add New Farmer"
-          style={{
-            marginBottom: "20px",
-            padding: "10px 20px",
-            backgroundColor: "#16A34A",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            fontWeight: "bold",
-          }}
-        >
-          ➕ Add New
-        </button>
-
-        {error && (
-          <div
-            role="alert"
-            style={{
-              backgroundColor: "#FEE2E2",
-              color: "#DC2626",
-              padding: "15px",
-              marginBottom: "20px",
-              borderRadius: "6px",
-            }}
-          >
-            {error}
-          </div>
-        )}
-
+    <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        {/* Toolbar */}
+        <div className="p-4 border-b border-gray-200 flex flex-wrap gap-4 justify-between items-center bg-gray-50">
+            <div className="flex gap-2 items-center">
+                <input 
+                  type="text"
+                  placeholder="Search by name or ID"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="text-sm border-gray-300 rounded-lg px-3 py-2 focus:ring-green-500"
+                />
+                <select className="text-sm border-gray-300 rounded-lg px-3 py-2 focus:ring-green-500"><option>All Provinces</option><option>Lusaka</option><option>Eastern</option></select>
+                <select className="text-sm border-gray-300 rounded-lg px-3 py-2 focus:ring-green-500"><option>Status: All</option><option>Verified</option><option>Pending</option></select>
+            </div>
+            <button onClick={() => navigate('/farmers/create')} className="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-lg text-sm font-medium shadow transition flex items-center">
+                + Add Farmer
+            </button>
+        </div>
+        
+        {/* Table */}
         {loading ? (
-          <div
-            style={{
-              backgroundColor: "white",
-              padding: "40px",
-              textAlign: "center",
-              borderRadius: "6px",
-            }}
-          >
-            ⏳ Loading...
-          </div>
-        ) : farmers.length === 0 ? (
-          <div
-            style={{
-              padding: "40px",
-              textAlign: "center",
-              color: "#666",
-            }}
-          >
-            No farmers
-          </div>
+            <div className="p-8 text-center">Loading...</div>
+        ) : error ? (
+            <div className="p-8 text-center text-red-500">{error}</div>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", backgroundColor: "white" }} aria-label="Farmers list">
-            <thead style={{ backgroundColor: "#F3F4F6" }}>
-              <tr>
-                <th style={{ padding: "15px", textAlign: "left" }}>#</th>
-                <th style={{ padding: "15px", textAlign: "left" }}>First Name</th>
-                <th style={{ padding: "15px", textAlign: "left" }}>Last Name</th>
-                <th style={{ padding: "15px", textAlign: "left" }}>Phone</th>
-                <th style={{ padding: "15px", textAlign: "left" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {farmers.map((f, i) => (
-                <tr
-                  key={f.farmer_id || i}
-                  style={{ borderBottom: "1px solid #E5E7EB" }}
-                >
-                  <td style={{ padding: "15px" }}>{i + 1}</td>
-                  <td style={{ padding: "15px", fontWeight: "bold" }}>
-                    {f.personal_info?.first_name || "-"}
-                  </td>
-                  <td style={{ padding: "15px" }}>
-                    {f.personal_info?.last_name || "-"}
-                  </td>
-                  <td style={{ padding: "15px" }}>
-                    {f.personal_info?.phone_primary || "-"}
-                  </td>
-                  <td
-                    style={{
-                      padding: "15px",
-                      display: "flex",
-                      gap: "10px",
-                    }}
-                  >
-                    <button
-                      onClick={() => navigate(`/farmers/${f.farmer_id}`)}
-                      aria-label={`View farmer ${f.personal_info?.first_name}`}
-                      style={{
-                        color: "#16A34A",
-                        border: "none",
-                        background: "transparent",
-                        cursor: "pointer",
-                        fontWeight: "bold",
-                        fontSize: "18px",
-                      }}
-                      title="View Details"
-                    >
-                      👁️
-                    </button>
-                    <button
-                      onClick={() => navigate(`/farmers/edit/${f.farmer_id}`)}
-                      aria-label={`Edit farmer ${f.personal_info?.first_name}`}
-                      style={{
-                        color: "#2563EB",
-                        border: "none",
-                        background: "transparent",
-                        cursor: "pointer",
-                        fontWeight: "bold",
-                        fontSize: "18px",
-                      }}
-                      title="Edit"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      onClick={() => handleDelete(
-                        f.farmer_id, 
-                        `${f.personal_info?.first_name || ""} ${f.personal_info?.last_name || ""}`.trim() || "Unknown"
-                      )}
-                      aria-label={`Delete farmer ${f.personal_info?.first_name}`}
-                      style={{
-                        color: "#DC2626",
-                        border: "none",
-                        background: "transparent",
-                        cursor: "pointer",
-                        fontSize: "18px",
-                      }}
-                      title="Delete"
-                    >
-                      🗑️
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-gray-600">
+                    <thead className="bg-gray-100 text-gray-700 font-bold uppercase text-xs">
+                        <tr>
+                            <th className="px-6 py-3">Farmer Info</th>
+                            <th className="px-6 py-3">Location</th>
+                            <th className="px-6 py-3">Farm Size</th>
+                            <th className="px-6 py-3">Crops</th>
+                            <th className="px-6 py-3">Status</th>
+                            <th className="px-6 py-3 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                        {currentFarmers.map((farmer) => (
+                            <tr key={farmer._id} className="hover:bg-green-50 transition">
+                                <td className="px-6 py-4">
+                                    <div className="flex items-center">
+                                        <div className="w-8 h-8 bg-green-200 text-green-800 rounded-full flex items-center justify-center font-bold text-xs mr-3">
+                                            {farmer.personal_info?.first_name?.[0] || ''}{farmer.personal_info?.last_name?.[0] || ''}
+                                        </div>
+                                        <div>
+                                            <div className="font-bold text-gray-900">{farmer.personal_info?.first_name} {farmer.personal_info?.last_name}</div>
+                                            <div className="text-xs">ID: {farmer.farmer_id}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4">{farmer.address?.district_name}, {farmer.address?.village}</td>
+                                <td className="px-6 py-4">{farmer.farm_info?.size_hectares} Ha <span className="text-xs text-gray-400 block">{farmer.farm_info?.tenure}</span></td>
+                                <td className="px-6 py-4">{farmer.farm_info?.crops?.join(', ')}</td>
+                                <td className="px-6 py-4">{getStatusBadge(farmer.registration_status || 'unknown')}</td>
+                                <td className="px-6 py-4 text-right">
+                                    <button onClick={() => navigate(`/farmers/${farmer.farmer_id}`)} className="text-blue-600 hover:text-blue-800 mr-2">View</button>
+                                    <button onClick={() => navigate(`/farmers/edit/${farmer.farmer_id}`)} className="text-gray-500 hover:text-gray-700">Edit</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         )}
-      </div>
+        {/* Pagination */}
+        <div className="p-4 border-t border-gray-200 bg-gray-50 text-xs text-gray-500 flex justify-between items-center">
+            <span>Showing {indexOfFirstFarmer + 1}-{Math.min(indexOfLastFarmer, filteredFarmers.length)} of {filteredFarmers.length}</span>
+            <div className="flex gap-1">
+                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-white border rounded shadow-sm hover:bg-gray-100 disabled:opacity-50">Prev</button>
+                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-white border rounded shadow-sm hover:bg-gray-100 disabled:opacity-50">Next</button>
+            </div>
+        </div>
     </div>
   );
 }
