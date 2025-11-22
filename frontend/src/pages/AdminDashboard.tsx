@@ -1,7 +1,6 @@
 // src/pages/AdminDashboard.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import useAuthStore from "@/store/authStore";
 import { farmerService } from "@/services/farmer.service";
 import { dashboardService } from "@/services/dashboard.service";
 
@@ -13,6 +12,7 @@ interface Farmer {
   primary_phone?: string;
   phone?: string;
   registration_status?: string;
+  createdAt: string;
 }
 
 interface Stats {
@@ -22,7 +22,6 @@ interface Stats {
 }
 
 export default function AdminDashboard() {
-  const { user, logout } = useAuthStore();
   const navigate = useNavigate();
 
   const [farmers, setFarmers] = useState<Farmer[]>([]);
@@ -40,10 +39,7 @@ export default function AdminDashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Fetch dashboard stats
       const statsData = await dashboardService.getStats();
-      
-      // Fetch recent farmers for the list
       const farmersData = await farmerService.getFarmers(5, 0);
       const farmersList = farmersData.results || farmersData || [];
       
@@ -61,157 +57,79 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold">🛡️ Admin Dashboard</h1>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">
-              {user?.email} (Admin)
-            </span>
-            <button
-              onClick={logout}
-              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-              aria-label="Logout"
-            >
-              Logout
-            </button>
+    <div className="space-y-6">
+      {/* Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-green-600 hover:shadow-md transition">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Registered Farmers</p>
+              <h3 className="text-2xl font-bold text-gray-800 mt-1">{stats.totalFarmers}</h3>
+            </div>
+            <div className="bg-green-50 p-3 rounded-lg text-green-600"></div>
+          </div>
+          <div className="mt-4 flex items-center text-xs text-green-600 font-semibold">
+            +2.4% this month
           </div>
         </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Quick Stats */}
-        <section className="grid grid-cols-3 gap-4 mb-8" aria-label="Dashboard stats">
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm">Total Farmers</p>
-                <p className="text-3xl font-bold">{stats.totalFarmers}</p>
-              </div>
-              <div className="text-4xl" aria-hidden="true">🌾</div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-orange-500 hover:shadow-md transition">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Pending Verifications</p>
+              <h3 className="text-2xl font-bold text-gray-800 mt-1">{stats.pendingVerifications}</h3>
             </div>
+            <div className="bg-orange-50 p-3 rounded-lg text-orange-600"></div>
           </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm">Total Operators</p>
-                <p className="text-3xl font-bold">{stats.totalOperators}</p>
-              </div>
-              <div className="text-4xl" aria-hidden="true">👥</div>
+          <div className="mt-4 flex items-center text-xs text-gray-500">
+            {stats.pendingVerifications > 0 ? `${stats.pendingVerifications} farmers to verify` : 'All verified'}
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-blue-600 hover:shadow-md transition">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Maize Yield (Est)</p>
+              <h3 className="text-2xl font-bold text-gray-800 mt-1">3.2M <span className="text-sm font-normal">Tons</span></h3>
             </div>
+            <div className="bg-blue-50 p-3 rounded-lg text-blue-600"></div>
           </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm">Pending Verifications</p>
-                <p className="text-3xl font-bold">{stats.pendingVerifications}</p>
-              </div>
-              <div className="text-4xl" aria-hidden="true">⏳</div>
+          <div className="mt-4 flex items-center text-xs text-green-600">
+            Target Met
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-purple-600 hover:shadow-md transition">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Active Operators</p>
+              <h3 className="text-2xl font-bold text-gray-800 mt-1">{stats.totalOperators}</h3>
             </div>
+            <div className="bg-purple-50 p-3 rounded-lg text-purple-600"></div>
           </div>
-        </section>
-
-        {/* Quick Actions */}
-        <section className="bg-white rounded-lg shadow p-6 mb-8" aria-label="Quick actions">
-          <h2 className="text-xl font-bold mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={() => navigate("/farmers/create")}
-              className="p-4 border-2 border-blue-600 rounded-lg hover:bg-blue-50 transition"
-            >
-              <div className="text-3xl mb-2" aria-hidden="true">🌾</div>
-              <h3 className="font-bold">Create New Farmer</h3>
-              <p className="text-sm text-gray-600">Register a new farmer profile</p>
-            </button>
-
-            <button
-              onClick={() => navigate("/operators/manage")}
-              className="p-4 border-2 border-green-600 rounded-lg hover:bg-green-50 transition"
-            >
-              <div className="text-3xl mb-2" aria-hidden="true">👥</div>
-              <h3 className="font-bold">Manage Operators</h3>
-              <p className="text-sm text-gray-600">Create and manage operator accounts</p>
-            </button>
-
-            <button
-              onClick={() => navigate("/farmers")}
-              className="p-4 border-2 border-purple-600 rounded-lg hover:bg-purple-50 transition"
-            >
-              <div className="text-3xl mb-2" aria-hidden="true">📋</div>
-              <h3 className="font-bold">View All Farmers</h3>
-              <p className="text-sm text-gray-600">Browse and search farmer records</p>
-            </button>
-
-            <button
-              onClick={() => navigate("/reports")}
-              className="p-4 border-2 border-orange-600 rounded-lg hover:bg-orange-50 transition"
-            >
-              <div className="text-3xl mb-2" aria-hidden="true">📊</div>
-              <h3 className="font-bold">Reports & Analytics</h3>
-              <p className="text-sm text-gray-600">View system reports and statistics</p>
-            </button>
+          <div className="mt-4 flex items-center text-xs text-gray-500">
+            Across 116 Districts
           </div>
-        </section>
+        </div>
+      </div>
 
-        {/* Recent Farmers */}
-        <section className="bg-white rounded-lg shadow p-6" aria-label="Recent farmers">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">Recent Farmers</h2>
-            <button
-              onClick={() => navigate("/farmers")}
-              className="text-blue-600 hover:text-blue-800 text-sm"
-            >
-              View All →
-            </button>
-          </div>
-
+      {/* Recent Activity */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-700 flex justify-between items-center">
+          Recent Farmer Registrations
+          <button onClick={() => navigate('/farmers')} className="text-xs text-blue-600 hover:underline">View All</button>
+        </div>
+        <div className="divide-y divide-gray-100">
           {loading ? (
-            <div className="text-center py-8">Loading...</div>
-          ) : farmers.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <p>No farmers registered yet</p>
-              <button
-                onClick={() => navigate("/farmers/create")}
-                className="mt-4 text-blue-600 hover:text-blue-800"
-              >
-                Create your first farmer →
-              </button>
-            </div>
+            <div className="text-center p-4">Loading...</div>
           ) : (
-            <div className="space-y-3">
-              {farmers.map((farmer) => (
-                <div
-                  key={farmer._id}
-                  className="border rounded p-4 hover:shadow-md transition cursor-pointer"
-                  onClick={() => navigate(`/farmers/${farmer.farmer_id}`)}
-                  tabIndex={0}
-                >
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h3 className="font-bold">
-                        {farmer.first_name} {farmer.last_name}
-                      </h3>
-                      <p className="text-sm text-gray-600">
-                        ID: {farmer.farmer_id} | Phone: {farmer.primary_phone || farmer.phone}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                        {farmer.registration_status || "Active"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            farmers.map(farmer => (
+              <div key={farmer._id} className="px-6 py-3 flex items-center hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/farmers/${farmer.farmer_id}`)}>
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                <p className="text-sm text-gray-600 flex-1">New farmer <strong>{farmer.first_name} {farmer.last_name}</strong> was registered.</p>
+                <span className="text-xs text-gray-400">{new Date(farmer.createdAt).toLocaleDateString()}</span>
+              </div>
+            ))
           )}
-        </section>
-      </main>
+        </div>
+      </div>
     </div>
   );
 }

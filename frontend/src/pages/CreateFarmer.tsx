@@ -1,6 +1,7 @@
-// src/pages/FarmerRegistration/CreateFarmer.tsx
+// src/pages/CreateFarmer.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { farmerService } from "@/services/farmer.service";
 
 type Crop = {
   product: string;
@@ -10,29 +11,25 @@ type Crop = {
 };
 
 type FormData = {
-  farmer_name: string;
+  first_name: string;
+  last_name: string;
   nrc_no: string;
-  phone: string;
+  primary_phone: string;
   email: string;
   gender: string;
   date_of_birth: string;
-  chiefdom: string;
-  district: string;
-  province: string;
-  zone_no: string;
-  zone_name: string;
-  locality: string;
-  total_land_holding: number;
-  crops: Crop[];
-  has_qr: boolean;
-  member_fee_paid: boolean;
-  member_fee_type: string;
-  active_member: boolean;
-  agri_input_fee_paid: boolean;
-  agri_input_fee_amount: number;
-  agri_input_season: string;
-  distribution_model: string;
-  status: string;
+  address: {
+    chiefdom: string;
+    district_name: string;
+    province_name: string;
+    village: string;
+  },
+  farm_info: {
+    size_hectares: number;
+    crops: Crop[];
+    tenure: string;
+  }
+  // TODO: Add the rest of the fields
 };
 
 const PROVINCES = [
@@ -61,568 +58,218 @@ const CROPS = [
   "Tobacco",
 ];
 
+const WizardStep = ({ step, activeStep }: { step: number, activeStep: number }) => {
+    const getStepClass = () => {
+        if (step < activeStep) return 'wizard-done';
+        if (step === activeStep) return 'wizard-active';
+        return 'wizard-pending';
+    }
+    const titles = ["Bio-Data", "Location", "Farm Profile", "Socio-Econ"];
+
+    return (
+        <div className="flex flex-col items-center">
+            <div className={`wizard-step ${getStepClass()}`}>{step}</div>
+            <span className={`text-xs mt-2 font-bold ${step === activeStep ? 'text-green-800' : 'text-gray-500'}`}>{titles[step-1]}</span>
+        </div>
+    )
+}
+
 export default function CreateFarmer() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showBackButton] = useState(true);
   const [form, setForm] = useState<FormData>({
-    farmer_name: "",
+    first_name: "",
+    last_name: "",
     nrc_no: "",
-    phone: "",
+    primary_phone: "",
     email: "",
-    gender: "",
+    gender: "Male",
     date_of_birth: "",
-    chiefdom: "",
-    district: "",
-    province: "",
-    zone_no: "",
-    zone_name: "",
-    locality: "",
-    total_land_holding: 0,
-    crops: [{ product: "", area_farmed: 0, yield_estimate: 0, yield_actual: 0 }],
-    has_qr: true,
-    member_fee_paid: false,
-    member_fee_type: "",
-    active_member: true,
-    agri_input_fee_paid: false,
-    agri_input_fee_amount: 0,
-    agri_input_season: "",
-    distribution_model: "FIFO",
-    status: "Active",
+    address: {
+        chiefdom: "",
+        district_name: "",
+        province_name: "Lusaka",
+        village: "",
+    },
+    farm_info: {
+        size_hectares: 0,
+        crops: [{ product: "Maize", area_farmed: 0, yield_estimate: 0, yield_actual: 0 }],
+        tenure: "Customary"
+    }
   });
 
   const update = <K extends keyof FormData>(key: K, val: FormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
 
+  const updateAddress = <K extends keyof FormData['address']>(key: K, val: FormData['address'][K]) =>
+    setForm((prev) => ({ ...prev, address: { ...prev.address, [key]: val } }));
+    
+  const updateFarmInfo = <K extends keyof FormData['farm_info']>(key: K, val: FormData['farm_info'][K]) =>
+    setForm((prev) => ({ ...prev, farm_info: { ...prev.farm_info, [key]: val } }));
+
   const updateCrop = (i: number, key: keyof Crop, value: any) => {
-    const crops = [...form.crops];
+    const crops = [...form.farm_info.crops];
     crops[i] = { ...crops[i], [key]: value };
-    setForm((prev) => ({ ...prev, crops }));
+    updateFarmInfo('crops', crops);
   };
 
   const addCrop = () =>
-    setForm((prev) => ({
-      ...prev,
-      crops: [...prev.crops, { product: "", area_farmed: 0, yield_estimate: 0, yield_actual: 0 }],
-    }));
+    updateFarmInfo('crops', [...form.farm_info.crops, { product: "", area_farmed: 0, yield_estimate: 0, yield_actual: 0 }]);
 
   const rmCrop = (i: number) =>
-    setForm((prev) => ({
-      ...prev,
-      crops: prev.crops.filter((_, idx) => idx !== i),
-    }));
+    updateFarmInfo('crops', form.farm_info.crops.filter((_, idx) => idx !== i));
 
   const submit = async () => {
     setLoading(true);
     setError("");
     try {
-      const resp = await fetch("/api/farmers/", {
-        method: "POST",
-        headers: { 
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`, 
-          "Content-Type": "application/json" 
-        },
-        body: JSON.stringify(form),
-      });
-      if (!resp.ok) throw new Error("Failed to create farmer");
+      await farmerService.createFarmer(form);
       alert("✅ Farmer Added!");
       navigate("/farmers");
     } catch (e: any) {
-      setError(e.message || "An error occurred");
+      setError(e.response?.data?.detail || e.message || "An error occurred");
     } finally {
       setLoading(false);
     }
   };
 
-  const styles = {
-    page: {
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-      padding: "40px 20px",
-    },
-    container: { maxWidth: "600px", margin: "0 auto" },
-    card: {
-      background: "white",
-      borderRadius: "15px",
-      boxShadow: "0 10px 40px rgba(0,0,0,0.3)",
-      padding: "40px",
-      marginBottom: "20px",
-    },
-    title: {
-      fontSize: "28px",
-      fontWeight: "bold",
-      color: "#333",
-      marginBottom: "10px",
-      textAlign: "center" as const,
-    },
-    subtitle: {
-      color: "#666",
-      textAlign: "center" as const,
-      marginBottom: "30px",
-      fontSize: "14px",
-    },
-    grid: { display: "grid" as const, gridTemplateColumns: "1fr 1fr", gap: "15px", marginBottom: "20px" },
-    fieldGroup: { marginBottom: "15px" },
-    label: { display: "block", fontWeight: 600, marginBottom: "8px", color: "#333", fontSize: "14px" },
-    input: { width: "100%", padding: "12px", border: "2px solid #e0e0e0", borderRadius: "8px", fontSize: "14px", transition: "all 0.3s" },
-    select: { width: "100%", padding: "12px", border: "2px solid #e0e0e0", borderRadius: "8px", fontSize: "14px" },
-    btn: { padding: "12px 24px", borderRadius: "8px", border: "none", fontSize: "14px", fontWeight: 600, cursor: "pointer", transition: "all 0.3s" },
-    btnPrimary: { background: "#667eea", color: "white" },
-    btnSecondary: { background: "#f0f0f0", color: "#333", marginRight: "10px" },
-    error: { background: "#fee", color: "#c33", padding: "12px", borderRadius: "8px", marginBottom: "15px", fontSize: "14px" },
-    cropBox: { background: "#f9f9f9", padding: "15px", borderRadius: "8px", border: "2px solid #e0e0e0", marginBottom: "15px" },
-  };
-
   return (
-    <div style={styles.page}>
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <div style={styles.title}>🌾 Register Farmer</div>
-          <div style={styles.subtitle}>Step {step} of 4</div>
-
-          {error && <div style={styles.error}>❌ {error}</div>}
-
-          {/* STEP 1: Personal */}
-          {step === 1 && (
-            <>
-              <div style={styles.grid}>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>👤 Name *</label>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="Full name"
-                    value={form.farmer_name}
-                    onChange={(e) => update("farmer_name", e.target.value)}
-                    required
-                  />
-                </div>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>🆔 NRC *</label>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="123456/10/1"
-                    value={form.nrc_no}
-                    onChange={(e) => update("nrc_no", e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-              <div style={styles.grid}>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>📱 Phone *</label>
-                  <input
-                    style={styles.input}
-                    type="tel"
-                    placeholder="+260..."
-                    value={form.phone}
-                    onChange={(e) => update("phone", e.target.value)}
-                    required
-                  />
-                </div>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>📧 Email</label>
-                  <input
-                    style={styles.input}
-                    type="email"
-                    placeholder="email@example.com"
-                    value={form.email}
-                    onChange={(e) => update("email", e.target.value)}
-                  />
-                </div>
-              </div>
-              <div style={styles.grid}>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>👫 Gender</label>
-                  <select
-                    style={styles.select}
-                    value={form.gender}
-                    onChange={(e) => update("gender", e.target.value)}
-                  >
-                    <option value="">Select</option>
-                    <option>Male</option>
-                    <option>Female</option>
-                  </select>
-                </div>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>🎂 DOB</label>
-                  <input
-                    style={styles.input}
-                    type="date"
-                    value={form.date_of_birth}
-                    onChange={(e) => update("date_of_birth", e.target.value)}
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* STEP 2: Location */}
-          {step === 2 && (
-            <>
-              <div style={styles.grid}>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>🗺️ Province *</label>
-                  <select
-                    style={styles.select}
-                    value={form.province}
-                    onChange={(e) => update("province", e.target.value)}
-                    required
-                  >
-                    <option value="">Select</option>
-                    {PROVINCES.map((p) => (
-                      <option key={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>📍 District *</label>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="District"
-                    value={form.district}
-                    onChange={(e) => update("district", e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div style={styles.grid}>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>👑 Chiefdom</label>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="Chiefdom"
-                    value={form.chiefdom}
-                    onChange={(e) => update("chiefdom", e.target.value)}
-                  />
-                </div>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>🏘️ Locality *</label>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="Village"
-                    value={form.locality}
-                    onChange={(e) => update("locality", e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div style={styles.grid}>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>📛 Zone No</label>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="Z001"
-                    value={form.zone_no}
-                    onChange={(e) => update("zone_no", e.target.value)}
-                  />
-                </div>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label}>🔤 Zone Name</label>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="Zone A"
-                    value={form.zone_name}
-                    onChange={(e) => update("zone_name", e.target.value)}
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* STEP 3: Farming */}
-          {step === 3 && (
-            <>
-              <div style={styles.fieldGroup}>
-                <label style={styles.label}>🌾 Land Holding (ha) *</label>
-                <input
-                  style={styles.input}
-                  type="number"
-                  placeholder="2.5"
-                  value={form.total_land_holding}
-                  onChange={(e) =>
-                    update("total_land_holding", parseFloat(e.target.value) || 0)
-                  }
-                  required
-                />
-              </div>
-              <div
-                style={{ marginBottom: "20px" }}
-                aria-label="Crops and yields section"
-              >
-                <label
-                  style={{ ...styles.label, marginBottom: "10px" }}
-                  htmlFor="addCropButton"
-                >
-                  🌱 Crops & Yields
-                </label>
-                <button
-                  id="addCropButton"
-                  onClick={addCrop}
-                  style={{ ...styles.btn, ...styles.btnPrimary, width: "100%", marginBottom: "10px" }}
-                  type="button"
-                >
-                  + Add Crop
-                </button>
-              </div>
-              {form.crops.map((c, i) => (
-                <div key={i} style={styles.cropBox}>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "10px",
-                      marginBottom: "10px",
-                    }}
-                  >
-                    <div>
-                      <label style={{ ...styles.label, marginBottom: "5px" }} htmlFor={`cropProduct-${i}`}>
-                        Crop
-                      </label>
-                      <select
-                        id={`cropProduct-${i}`}
-                        style={{ ...styles.select }}
-                        value={c.product}
-                        onChange={(e) => updateCrop(i, "product", e.target.value)}
-                      >
-                        <option value="">Select</option>
-                        {CROPS.map((cr) => (
-                          <option key={cr}>{cr}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ ...styles.label, marginBottom: "5px" }} htmlFor={`cropArea-${i}`}>
-                        Area (Ha)
-                      </label>
-                      <input
-                        id={`cropArea-${i}`}
-                        style={{ ...styles.input }}
-                        type="number"
-                        value={c.area_farmed}
-                        onChange={(e) => updateCrop(i, "area_farmed", parseFloat(e.target.value) || 0)}
-                      />
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "10px",
-                    }}
-                  >
-                    <div>
-                      <label style={{ ...styles.label, marginBottom: "5px" }} htmlFor={`cropYieldEst-${i}`}>
-                        Est. Yield
-                      </label>
-                      <input
-                        id={`cropYieldEst-${i}`}
-                        style={{ ...styles.input }}
-                        type="number"
-                        value={c.yield_estimate}
-                        onChange={(e) => updateCrop(i, "yield_estimate", parseFloat(e.target.value) || 0)}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ ...styles.label, marginBottom: "5px" }} htmlFor={`cropYieldAct-${i}`}>
-                        Actual Yield
-                      </label>
-                      <input
-                        id={`cropYieldAct-${i}`}
-                        style={{ ...styles.input }}
-                        type="number"
-                        value={c.yield_actual}
-                        onChange={(e) => updateCrop(i, "yield_actual", parseFloat(e.target.value) || 0)}
-                      />
-                    </div>
-                  </div>
-                  {form.crops.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => rmCrop(i)}
-                      style={{ ...styles.btn, background: "#ff6b6b", color: "white", marginTop: "10px", width: "100%" }}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              ))}
-            </>
-          )}
-
-          {/* STEP 4: Membership */}
-          {step === 4 && (
-            <>
-              <div style={styles.grid}>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label} htmlFor="statusSelect">
-                    📋 Status
-                  </label>
-                  <select
-                    id="statusSelect"
-                    style={styles.select}
-                    value={form.status}
-                    onChange={(e) => update("status", e.target.value)}
-                  >
-                    <option>Active</option>
-                    <option>Inactive</option>
-                    <option>Pending</option>
-                  </select>
-                </div>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label} htmlFor="feeTypeSelect">
-                    💰 Fee Type
-                  </label>
-                  <select
-                    id="feeTypeSelect"
-                    style={styles.select}
-                    value={form.member_fee_type}
-                    onChange={(e) => update("member_fee_type", e.target.value)}
-                  >
-                    <option value="">Select</option>
-                    <option>Annual</option>
-                    <option>Half-Yearly</option>
-                  </select>
-                </div>
-              </div>
-              <div style={styles.grid}>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label} htmlFor="inputFeeAmount">
-                    💵 Input Fee Amount
-                  </label>
-                  <input
-                    id="inputFeeAmount"
-                    style={styles.input}
-                    type="number"
-                    value={form.agri_input_fee_amount}
-                    onChange={(e) => update("agri_input_fee_amount", parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div style={styles.fieldGroup}>
-                  <label style={styles.label} htmlFor="seasonInput">
-                    📅 Season
-                  </label>
-                  <input
-                    id="seasonInput"
-                    style={styles.input}
-                    type="text"
-                    placeholder="2024/2025"
-                    value={form.agri_input_season}
-                    onChange={(e) => update("agri_input_season", e.target.value)}
-                  />
-                </div>
-              </div>
-              <div style={styles.fieldGroup}>
-                <label style={styles.label} htmlFor="distributionModelSelect">
-                  📦 Distribution
-                </label>
-                <select
-                  id="distributionModelSelect"
-                  style={styles.select}
-                  value={form.distribution_model}
-                  onChange={(e) => update("distribution_model", e.target.value)}
-                >
-                  <option>FIFO</option>
-                  <option>Priority</option>
-                </select>
-              </div>
-              <div
-                style={{ display: "grid", gap: "10px" }}
-                role="group"
-                aria-labelledby="memberInfoHeader"
-              >
-                <div id="memberInfoHeader" style={{ fontWeight: 600, marginBottom: 8 }}>
-                  Membership Info
-                </div>
-                <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={form.has_qr}
-                    onChange={(e) => update("has_qr", e.target.checked)}
-                  />{" "}
-                  QR Code Capability
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={form.member_fee_paid}
-                    onChange={(e) => update("member_fee_paid", e.target.checked)}
-                  />{" "}
-                  Member Fee Paid
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={form.active_member}
-                    onChange={(e) => update("active_member", e.target.checked)}
-                  />{" "}
-                  Active Member
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={form.agri_input_fee_paid}
-                    onChange={(e) => update("agri_input_fee_paid", e.target.checked)}
-                  />{" "}
-                  Input Fee Paid
-                </label>
-              </div>
-            </>
-          )}
-
-          {/* Buttons */}
-          <div
-            style={{
-              display: "flex",
-              gap: "10px",
-              marginTop: "30px",
-              justifyContent: "space-between",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => (step > 1 ? setStep(step - 1) : navigate("/farmers"))}
-              style={{ ...styles.btn, ...styles.btnSecondary, flex: 1 }}
-            >
-              ← {step === 1 ? "Back" : "Previous"}
-            </button>
-
-            {step < 4 ? (
-              <button
-                type="button"
-                onClick={() => setStep(step + 1)}
-                style={{ ...styles.btn, ...styles.btnPrimary, flex: 1 }}
-              >
-                Next →
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={submit}
-                disabled={loading}
-                style={{
-                  ...styles.btn,
-                  ...styles.btnPrimary,
-                  flex: 1,
-                  opacity: loading ? 0.6 : 1,
-                }}
-              >
-                {loading ? "⏳ Creating..." : "✅ Create Farmer"}
-              </button>
-            )}
-          </div>
+    <div className="max-w-5xl mx-auto">
+        {/* Wizard Header */}
+        <div className="flex justify-between items-center mb-8 px-8">
+            <WizardStep step={1} activeStep={step} />
+            <div className="h-1 bg-gray-300 flex-1 mx-2 mt-[-20px]"></div>
+            <WizardStep step={2} activeStep={step} />
+            <div className="h-1 bg-gray-300 flex-1 mx-2 mt-[-20px]"></div>
+            <WizardStep step={3} activeStep={step} />
+            <div className="h-1 bg-gray-300 flex-1 mx-2 mt-[-20px]"></div>
+            <WizardStep step={4} activeStep={step} />
         </div>
-      </div>
+
+        {/* Form Container */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
+            {error && <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6">{error}</div>}
+
+            {/* SECTION 1: BIO DATA */}
+            <div id="form-sec-1" className={`form-section ${step === 1 ? '' : 'hidden'}`}>
+                <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b">1. Farmer Identification</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">NRC Number *</label>
+                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" placeholder="000000/00/1" value={form.nrc_no} onChange={e => update('nrc_no', e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">First Name *</label>
+                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" value={form.first_name} onChange={e => update('first_name', e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Surname *</label>
+                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" value={form.last_name} onChange={e => update('last_name', e.target.value)} />
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Date of Birth</label>
+                        <input type="date" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" value={form.date_of_birth} onChange={e => update('date_of_birth', e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Gender</label>
+                        <select className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none" value={form.gender} onChange={e => update('gender', e.target.value)}>
+                            <option>Male</option>
+                            <option>Female</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Phone (Primary)</label>
+                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" placeholder="+260" value={form.primary_phone} onChange={e => update('primary_phone', e.target.value)} />
+                    </div>
+                </div>
+                <div className="flex justify-end mt-8">
+                    <button onClick={() => setStep(2)} className="bg-green-700 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-800 flex items-center">Next Step</button>
+                </div>
+            </div>
+
+            {/* SECTION 2: LOCATION */}
+            <div id="form-sec-2" className={`form-section ${step === 2 ? '' : 'hidden'}`}>
+                <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b">2. Geographic Data</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Province</label>
+                        <select className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none" value={form.address.province_name} onChange={e => updateAddress('province_name', e.target.value)}>
+                            {PROVINCES.map(p => <option key={p}>{p}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">District</label>
+                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" value={form.address.district_name} onChange={e => updateAddress('district_name', e.target.value)} />
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Chiefdom</label>
+                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" value={form.address.chiefdom} onChange={e => updateAddress('chiefdom', e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Village / Zone</label>
+                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" value={form.address.village} onChange={e => updateAddress('village', e.target.value)} />
+                    </div>
+                </div>
+                <div className="flex justify-between mt-8">
+                    <button onClick={() => setStep(1)} className="text-gray-500 font-bold hover:text-gray-700">Back</button>
+                    <button onClick={() => setStep(3)} className="bg-green-700 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-800 flex items-center">Next Step</button>
+                </div>
+            </div>
+
+            {/* SECTION 3: FARM PROFILE */}
+            <div id="form-sec-3" className={`form-section ${step === 3 ? '' : 'hidden'}`}>
+                <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b">3. Farm Characteristics</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Total Hectares</label>
+                        <input type="number" className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" value={form.farm_info.size_hectares} onChange={e => updateFarmInfo('size_hectares', parseFloat(e.target.value) || 0)} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Land Tenure</label>
+                        <select className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none" value={form.farm_info.tenure} onChange={e => updateFarmInfo('tenure', e.target.value)}>
+                            <option>Customary</option>
+                            <option>Title Deed</option>
+                        </select>
+                    </div>
+                </div>
+                <div className="mb-6">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Crops Cultivated</label>
+                    {form.farm_info.crops.map((crop, i) => (
+                        <div key={i} className="grid grid-cols-3 gap-4 mb-2 p-2 border rounded">
+                            <select className="w-full p-2 border rounded bg-white" value={crop.product} onChange={e => updateCrop(i, 'product', e.target.value)}>
+                                <option value="">Select Crop</option>
+                                {CROPS.map(c => <option key={c}>{c}</option>)}
+                            </select>
+                            <input type="number" placeholder="Area (Ha)" className="w-full p-2 border rounded" value={crop.area_farmed} onChange={e => updateCrop(i, 'area_farmed', parseFloat(e.target.value) || 0)} />
+                            <button onClick={() => rmCrop(i)} className="bg-red-500 text-white px-2 py-1 rounded text-xs">Remove</button>
+                        </div>
+                    ))}
+                    <button onClick={addCrop} className="text-sm text-blue-600 hover:underline mt-2">+ Add another crop</button>
+                </div>
+                <div className="flex justify-between mt-8">
+                    <button onClick={() => setStep(2)} className="text-gray-500 font-bold hover:text-gray-700">Back</button>
+                    <button onClick={() => setStep(4)} className="bg-green-700 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-800 flex items-center">Next Step</button>
+                </div>
+            </div>
+
+            {/* SECTION 4: SOCIO-ECON */}
+            <div id="form-sec-4" className={`form-section ${step === 4 ? '' : 'hidden'}`}>
+                <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b">4. Socio-Economic & Financial</h3>
+                <p className="text-center text-gray-500">This section is a placeholder for additional socio-economic data.</p>
+                <div className="flex justify-between mt-8">
+                    <button onClick={() => setStep(3)} className="text-gray-500 font-bold hover:text-gray-700">Back</button>
+                    <button onClick={submit} disabled={loading} className="bg-orange-600 text-white px-8 py-2 rounded-lg font-bold hover:bg-orange-700 shadow-lg transform hover:-translate-y-1 transition disabled:opacity-50">
+                        {loading ? 'Saving...' : 'Submit Registration'}
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
   );
 }

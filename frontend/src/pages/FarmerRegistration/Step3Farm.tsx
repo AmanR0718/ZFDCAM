@@ -1,16 +1,8 @@
-// src/pages/FarmerRegistrationWizard/Step3Farm.tsx
+// src/pages/FarmerRegistration/Step3Farm.tsx
 import { useState } from "react";
+import { WizardState } from ".";
 
-type FarmData = {
-  size_hectares?: string;
-  crops?: string;
-  livestock?: string;
-  has_irrigation?: boolean;
-  years_farming?: string;
-  household_size?: string;
-  dependents?: string;
-  primary_income?: string;
-};
+type FarmData = WizardState["farm"];
 
 type Props = {
   data: FarmData;
@@ -18,183 +10,127 @@ type Props = {
   onNext: (values: FarmData) => void;
 };
 
+const cropOptions = ["Maize", "Soya Beans", "Groundnuts", "Sunflower", "Cotton", "Tobacco", "Vegetables", "Fruits"];
+
 export default function Step3Farm({ data, onBack, onNext }: Props) {
-  const [size, setSize] = useState(data?.size_hectares || "");
-  const [crops, setCrops] = useState(data?.crops || "");
-  const [livestock, setLivestock] = useState(data?.livestock || "");
-  const [hasIrrigation, setHasIrrigation] = useState(data?.has_irrigation || false);
-  const [yearsFarming, setYearsFarming] = useState(data?.years_farming || "");
+  const [sizeHectares, setSizeHectares] = useState(data?.size_hectares || "");
+  const [landTenure, setLandTenure] = useState(data?.land_tenure || "");
+  const [soilType, setSoilType] = useState(data?.soil_type || "");
+  const [crops, setCrops] = useState<string[]>(data?.crops || []);
+  const [livestock, setLivestock] = useState(data?.livestock || { cattle: 0, goats: 0, pigs: 0, poultry: 0 });
   const [householdSize, setHouseholdSize] = useState(data?.household_size || "");
-  const [dependents, setDependents] = useState(data?.dependents || "");
-  const [primaryIncome, setPrimaryIncome] = useState(data?.primary_income || "");
+  const [primaryIncome, setPrimaryIncome] = useState(data?.primary_income || "Farming Only");
+  const [financialServices, setFinancialServices] = useState(data?.financial_services || []);
+  const [vulnerability, setVulnerability] = useState(data?.vulnerability || []);
+
+  const handleCropChange = (crop: string) => {
+    setCrops(prev => prev.includes(crop) ? prev.filter(c => c !== crop) : [...prev, crop]);
+  };
+
+  const handleLivestockChange = (animal: string, value: string) => {
+    setLivestock(prev => ({ ...prev, [animal]: parseInt(value) || 0 }));
+  };
+
+  const handleNext = () => {
+    onNext({
+      ...data,
+      size_hectares: sizeHectares,
+      land_tenure: landTenure,
+      soil_type: soilType,
+      crops,
+      livestock,
+      household_size: householdSize,
+      primary_income: primaryIncome,
+      financial_services: financialServices,
+      vulnerability,
+    });
+  };
 
   return (
     <div>
-      <h3>Farm details (optional)</h3>
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="farmSize" style={{ fontWeight: "bold" }}>
-          Farm size (hectares)
-        </label>
-        <input
-          id="farmSize"
-          value={size}
-          onChange={(e) => setSize(e.target.value)}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-          placeholder="e.g. 1.5"
-          type="number"
-          min="0"
-          step="0.01"
-          aria-describedby="farmSizeDesc"
-        />
-        <small id="farmSizeDesc" style={{ color: "#666" }}>
-          Enter farm size in hectares
-        </small>
+      {/* Farm Characteristics */}
+      <div id="form-sec-3" className="form-section">
+          <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b">3. Farm Characteristics</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Total Hectares</label>
+                  <input type="number" value={sizeHectares} onChange={e => setSizeHectares(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" />
+              </div>
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Land Tenure</label>
+                  <select value={landTenure} onChange={e => setLandTenure(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none">
+                      <option value="">Select...</option>
+                      <option>Customary</option><option>Title Deed</option>
+                  </select>
+              </div>
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Soil Type</label>
+                  <select value={soilType} onChange={e => setSoilType(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none">
+                      <option value="">Select...</option>
+                      <option>Sandy Loam</option><option>Clay</option>
+                  </select>
+              </div>
+          </div>
+          <div className="mb-6">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Crops Cultivated</label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {cropOptions.map(crop => (
+                      <label key={crop} className="flex items-center p-2 border rounded hover:bg-gray-50">
+                          <input type="checkbox" checked={crops.includes(crop)} onChange={() => handleCropChange(crop)} className="mr-2 text-green-600" /> {crop}
+                      </label>
+                  ))}
+              </div>
+          </div>
+          <div className="mb-4">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Livestock Inventory</label>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div><label className="text-xs">Cattle</label><input type="number" value={livestock.cattle} onChange={e => handleLivestockChange('cattle', e.target.value)} className="w-full p-1 border rounded" /></div>
+                  <div><label className="text-xs">Goats</label><input type="number" value={livestock.goats} onChange={e => handleLivestockChange('goats', e.target.value)} className="w-full p-1 border rounded" /></div>
+                  <div><label className="text-xs">Pigs</label><input type="number" value={livestock.pigs} onChange={e => handleLivestockChange('pigs', e.target.value)} className="w-full p-1 border rounded" /></div>
+                  <div><label className="text-xs">Poultry</label><input type="number" value={livestock.poultry} onChange={e => handleLivestockChange('poultry', e.target.value)} className="w-full p-1 border rounded" /></div>
+              </div>
+          </div>
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="mainCrops" style={{ fontWeight: "bold" }}>
-          Main crops (comma separated)
-        </label>
-        <input
-          id="mainCrops"
-          value={crops}
-          onChange={(e) => setCrops(e.target.value)}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-          placeholder="maize, groundnuts, cassava"
-          aria-describedby="mainCropsDesc"
-        />
-        <small id="mainCropsDesc" style={{ color: "#666" }}>
-          Enter main crops separated by commas
-        </small>
+      {/* Socio-Economic */}
+      <div id="form-sec-4" className="form-section mt-8">
+          <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b">4. Socio-Economic & Financial</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Household Size</label>
+                  <input type="number" value={householdSize} onChange={e => setHouseholdSize(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" />
+              </div>
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Primary Income Source</label>
+                  <select value={primaryIncome} onChange={e => setPrimaryIncome(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 outline-none">
+                      <option>Farming Only</option><option>Farming + Business</option>
+                  </select>
+              </div>
+          </div>
+          <div className="mb-6">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Financial Services</label>
+              <div className="space-y-2">
+                  <label className="flex items-center"><input type="checkbox" className="mr-2" /> Has Bank Account</label>
+                  <div className="flex items-center gap-2">
+                      <label className="flex items-center"><input type="checkbox" className="mr-2" /> Has Mobile Money</label>
+                      <select className="p-1 border rounded text-xs"><option>Airtel</option><option>MTN</option><option>Zamtel</option></select>
+                  </div>
+              </div>
+          </div>
+          <div className="p-4 bg-orange-50 border border-orange-100 rounded mb-4">
+              <h4 className="font-bold text-orange-800 text-sm mb-2">Vulnerability (FISP Eligibility)</h4>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                  <label className="flex items-center"><input type="checkbox" className="mr-2" /> Female Headed Household</label>
+                  <label className="flex items-center"><input type="checkbox" className="mr-2" /> Youth Farmer (&lt; 35)</label>
+                  <label className="flex items-center"><input type="checkbox" className="mr-2" /> Living with Disability</label>
+                  <label className="flex items-center"><input type="checkbox" className="mr-2" /> Elderly (&gt; 60)</label>
+              </div>
+          </div>
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="livestock" style={{ fontWeight: "bold" }}>
-          Livestock (comma separated)
-        </label>
-        <input
-          id="livestock"
-          value={livestock}
-          onChange={(e) => setLivestock(e.target.value)}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-          placeholder="cattle, goats, chickens"
-        />
-        <small style={{ color: "#666" }}>
-          Enter livestock types separated by commas
-        </small>
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="yearsFarming" style={{ fontWeight: "bold" }}>
-          Years of Farming Experience
-        </label>
-        <input
-          id="yearsFarming"
-          value={yearsFarming}
-          onChange={(e) => setYearsFarming(e.target.value)}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-          placeholder="e.g. 5"
-          type="number"
-          min="0"
-          max="100"
-        />
-        <small style={{ color: "#666" }}>Maximum: 100 years</small>
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <label style={{ fontWeight: "bold", display: "flex", alignItems: "center" }}>
-          <input
-            type="checkbox"
-            checked={hasIrrigation}
-            onChange={(e) => setHasIrrigation(e.target.checked)}
-            style={{ marginRight: 8 }}
-          />
-          Has Irrigation System
-        </label>
-      </div>
-
-      <h4 style={{ marginTop: 20 }}>Household Information (optional)</h4>
-
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="householdSize" style={{ fontWeight: "bold" }}>
-          Household Size
-        </label>
-        <input
-          id="householdSize"
-          value={householdSize}
-          onChange={(e) => setHouseholdSize(e.target.value)}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-          placeholder="Number of people in household"
-          type="number"
-          min="1"
-        />
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="dependents" style={{ fontWeight: "bold" }}>
-          Number of Dependents
-        </label>
-        <input
-          id="dependents"
-          value={dependents}
-          onChange={(e) => setDependents(e.target.value)}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-          placeholder="Number of dependents"
-          type="number"
-          min="0"
-        />
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="primaryIncome" style={{ fontWeight: "bold" }}>
-          Primary Income Source
-        </label>
-        <input
-          id="primaryIncome"
-          value={primaryIncome}
-          onChange={(e) => setPrimaryIncome(e.target.value)}
-          style={{ width: "100%", padding: 10, marginTop: 6 }}
-          placeholder="e.g. farming, business"
-        />
-      </div>
-
-      <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-        <button
-          onClick={onBack}
-          style={{
-            padding: 12,
-            background: "#6B7280",
-            color: "white",
-            border: "none",
-            borderRadius: 6,
-          }}
-          aria-label="Go back to previous step"
-        >
-          ← Back
-        </button>
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => onNext({
-            size_hectares: size,
-            crops,
-            livestock,
-            has_irrigation: hasIrrigation,
-            years_farming: yearsFarming,
-            household_size: householdSize,
-            dependents,
-            primary_income: primaryIncome,
-          })}
-          style={{
-            padding: 12,
-            background: "#2563EB",
-            color: "white",
-            border: "none",
-            borderRadius: 6,
-          }}
-          aria-label="Go to next step"
-        >
-          Next →
-        </button>
+      <div className="flex justify-between mt-8">
+          <button onClick={onBack} className="text-gray-500 font-bold hover:text-gray-700">Back</button>
+          <button onClick={handleNext} className="bg-green-700 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-800">Next Step <i className="fa-solid fa-arrow-right ml-2"></i></button>
       </div>
     </div>
   );

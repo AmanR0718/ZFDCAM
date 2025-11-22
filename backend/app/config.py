@@ -110,7 +110,7 @@ class Settings(BaseSettings):
         description="Allowed HTTP methods for CORS"
     )
     CORS_ALLOW_HEADERS: List[str] = Field(
-        default=["*"],
+        default=["Content-Type", "Authorization", "X-Requested-With"],
         description="Allowed headers for CORS"
     )
 

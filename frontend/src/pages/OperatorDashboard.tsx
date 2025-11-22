@@ -1,7 +1,6 @@
 // src/pages/OperatorDashboard.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import useAuthStore from "@/store/authStore";
 import { farmerService } from "@/services/farmer.service";
 
 interface Farmer {
@@ -9,27 +8,38 @@ interface Farmer {
   farmer_id: string;
   first_name: string;
   last_name: string;
-  primary_phone?: string;
-  phone?: string;
-  email?: string;
+  createdAt: string;
 }
 
 export default function OperatorDashboard() {
-  const { user, logout } = useAuthStore();
   const navigate = useNavigate();
 
   const [farmers, setFarmers] = useState<Farmer[]>([]);
   const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState({
+      myFarmers: 0,
+      pendingVerifications: 0,
+      upcomingVisits: 0,
+      fispApplications: 0,
+  });
 
   useEffect(() => {
-    loadFarmers();
+    loadData();
   }, []);
 
-  const loadFarmers = async () => {
+  const loadData = async () => {
     setLoading(true);
     try {
-      const data = await farmerService.getFarmers({ limit: 10 });
-      setFarmers(data.results || []);
+      const data = await farmerService.getFarmers({ limit: 5 });
+      const farmersList = data.results || [];
+      setFarmers(farmersList);
+      // Placeholder stats
+      setStats({
+          myFarmers: farmersList.length,
+          pendingVerifications: farmersList.filter(f => f.registration_status !== 'verified').length,
+          upcomingVisits: 5, // placeholder
+          fispApplications: 12, // placeholder
+      });
     } catch (error) {
       console.error("Failed to load farmers:", error);
     } finally {
@@ -38,129 +48,64 @@ export default function OperatorDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-bold">👨‍🌾 Operator Dashboard</h1>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">
-                {user?.email} (Operator)
-              </span>
-              <button
-                onClick={logout}
-                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-                aria-label="Logout"
-              >
-                Logout
-              </button>
+    <div className="space-y-6">
+      {/* Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-green-600 hover:shadow-md transition">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">My Registered Farmers</p>
+              <h3 className="text-2xl font-bold text-gray-800 mt-1">{stats.myFarmers}</h3>
             </div>
+            <div className="bg-green-50 p-3 rounded-lg text-green-600"><i className="fa-solid fa-users text-xl"></i></div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-orange-500 hover:shadow-md transition">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Pending Verifications</p>
+              <h3 className="text-2xl font-bold text-gray-800 mt-1">{stats.pendingVerifications}</h3>
+            </div>
+            <div className="bg-orange-50 p-3 rounded-lg text-orange-600"><i className="fa-solid fa-file-signature text-xl"></i></div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-blue-600 hover:shadow-md transition">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Upcoming Visits</p>
+              <h3 className="text-2xl font-bold text-gray-800 mt-1">{stats.upcomingVisits}</h3>
+            </div>
+            <div className="bg-blue-50 p-3 rounded-lg text-blue-600"><i className="fa-solid fa-person-walking-luggage text-xl"></i></div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-purple-600 hover:shadow-md transition">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">FISP Applications</p>
+              <h3 className="text-2xl font-bold text-gray-800 mt-1">{stats.fispApplications}</h3>
+            </div>
+            <div className="bg-purple-50 p-3 rounded-lg text-purple-600"><i className="fa-solid fa-file-alt text-xl"></i></div>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Quick Actions */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h2 className="text-xl font-bold mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={() => navigate("/farmers/create")}
-              className="p-6 border-2 border-blue-600 rounded-lg hover:bg-blue-50 transition"
-              aria-label="Register New Farmer"
-            >
-              <div className="text-4xl mb-2">➕</div>
-              <h3 className="font-bold text-lg">Register New Farmer</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                Start 4-step registration process
-              </p>
-            </button>
-
-            <button
-              onClick={() => navigate("/farmers")}
-              className="p-6 border-2 border-green-600 rounded-lg hover:bg-green-50 transition"
-              aria-label="My Farmers"
-            >
-              <div className="text-4xl mb-2">📋</div>
-              <h3 className="font-bold text-lg">My Farmers</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                View and manage registered farmers
-              </p>
-            </button>
-          </div>
+      {/* Recent Activity */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-700 flex justify-between items-center">
+          My Recent Registrations
+          <button onClick={() => navigate('/farmers')} className="text-xs text-blue-600 hover:underline">View All</button>
         </div>
-
-        {/* Farmers List */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">
-              My Registered Farmers ({farmers.length})
-            </h2>
-            <button
-              onClick={loadFarmers}
-              className="text-blue-600 hover:text-blue-800"
-              aria-label="Refresh Farmers List"
-            >
-              🔄 Refresh
-            </button>
-          </div>
-
+        <div className="divide-y divide-gray-100">
           {loading ? (
-            <div className="text-center py-8">Loading farmers...</div>
-          ) : farmers.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <div className="text-6xl mb-4">🌾</div>
-              <p className="text-lg mb-2">No farmers registered yet</p>
-              <p className="text-sm mb-4">Start by registering your first farmer</p>
-              <button
-                onClick={() => navigate("/farmers/create")}
-                className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
-              >
-                Register First Farmer
-              </button>
-            </div>
+            <div className="text-center p-4">Loading...</div>
           ) : (
-            <div className="space-y-3">
-              {farmers.map((farmer) => (
-                <div
-                  key={farmer._id}
-                  className="border rounded p-4 hover:shadow-md transition"
-                >
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h3 className="font-bold text-lg">
-                        {farmer.first_name} {farmer.last_name}
-                      </h3>
-                      <p className="text-sm text-gray-600">
-                        📱 {farmer.primary_phone || farmer.phone} | 🆔{" "}
-                        {farmer.farmer_id}
-                      </p>
-                      {farmer.email && (
-                        <p className="text-sm text-gray-600">📧 {farmer.email}</p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => navigate(`/farmers/${farmer.farmer_id}`)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                        aria-label={`View details of ${farmer.first_name}`}
-                      >
-                        View Details
-                      </button>
-                      <button
-                        onClick={() => navigate(`/farmers/${farmer.farmer_id}/edit`)}
-                        className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
-                        aria-label={`Edit ${farmer.first_name}`}
-                      >
-                        Edit
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            farmers.map(farmer => (
+              <div key={farmer._id} className="px-6 py-3 flex items-center hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/farmers/${farmer.farmer_id}`)}>
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                <p className="text-sm text-gray-600 flex-1">New farmer <strong>{farmer.first_name} {farmer.last_name}</strong> was registered.</p>
+                <span className="text-xs text-gray-400">{new Date(farmer.createdAt).toLocaleDateString()}</span>
+              </div>
+            ))
           )}
         </div>
       </div>

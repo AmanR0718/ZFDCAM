@@ -1,28 +1,25 @@
 // src/pages/OperatorManagement.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { userService } from "@/services/user.service";
+import { operatorService } from "@/services/operator.service";
 
 interface Operator {
-  id: string;
+  _id: string;
+  operator_id: string;
+  first_name: string;
+  last_name: string;
   email: string;
-  full_name: string;
   phone?: string;
-  region?: string;
+  role: string;
+  status: string;
+  assigned_district?: string;
+  assigned_province?: string;
 }
 
 export default function OperatorManagement() {
   const navigate = useNavigate();
   const [operators, setOperators] = useState<Operator[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [showCreateForm, setShowCreateForm] = useState<boolean>(false);
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    full_name: "",
-    phone: "",
-    region: "",
-  });
 
   useEffect(() => {
     loadOperators();
@@ -31,142 +28,84 @@ export default function OperatorManagement() {
   const loadOperators = async () => {
     setLoading(true);
     try {
-      const data = await userService.getUsers({ role: "OPERATOR" });
-      setOperators(data.results || []);
-    } catch (error) {
-      console.error("Failed to load operators:", error);
+      const data = await operatorService.getOperators(100, 0);
+      const operatorList = data.results || data.operators || data || [];
+      setOperators(operatorList);
+    } catch (err: any) {
+      console.error("Failed to load operators:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleToggleStatus = async (operatorId: string, currentStatus: string) => {
+    const action = currentStatus === "active" ? "deactivate" : "activate";
+    if (!confirm(`Are you sure you want to ${action} this operator?`)) {
+      return;
+    }
+
     try {
-      await userService.createOperator(formData);
-      alert("Operator created successfully!");
-      setShowCreateForm(false);
-      setFormData({ email: "", password: "", full_name: "", phone: "", region: "" });
+      if (currentStatus === "active") {
+        await operatorService.deactivate(operatorId);
+      } else {
+        await operatorService.activate(operatorId);
+      }
+      alert(`✅ Operator ${action}d successfully`);
       loadOperators();
-    } catch (error: any) {
-      alert("Failed to create operator: " + (error.response?.data?.detail || error.message));
+    } catch (err: any) {
+      alert(err.response?.data?.detail || `Failed to ${action} operator`);
     }
   };
+  
+  const getStatusBadge = (status: string) => {
+      switch (status.toLowerCase()) {
+          case 'active':
+              return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Active</span>;
+          case 'inactive':
+              return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Inactive</span>;
+          default:
+              return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">{status}</span>;
+      }
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => navigate("/")}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 font-bold"
-              >
-                ← Back
-              </button>
-              <h1 className="text-2xl font-bold">👥 Operator Management</h1>
-            </div>
-            <button
-              onClick={() => setShowCreateForm(!showCreateForm)}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              aria-expanded={showCreateForm}
-              aria-controls="createOperatorForm"
-            >
-              {showCreateForm ? "Cancel" : "+ Create Operator"}
-            </button>
-          </div>
-
-          {showCreateForm && (
-            <form
-              id="createOperatorForm"
-              onSubmit={handleCreate}
-              className="mb-6 p-4 bg-gray-50 rounded"
-              aria-live="polite"
-            >
-              <h3 className="font-bold mb-4">Create New Operator</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="email"
-                  placeholder="Email *"
-                  required
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="px-3 py-2 border rounded"
-                />
-                <input
-                  type="password"
-                  placeholder="Password *"
-                  required
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="px-3 py-2 border rounded"
-                />
-                <input
-                  type="text"
-                  placeholder="Full Name *"
-                  required
-                  value={formData.full_name}
-                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                  className="px-3 py-2 border rounded"
-                />
-                <input
-                  type="tel"
-                  placeholder="Phone"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="px-3 py-2 border rounded"
-                />
-                <input
-                  type="text"
-                  placeholder="Assigned Region"
-                  value={formData.region}
-                  onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                  className="px-3 py-2 border rounded col-span-2"
-                />
-              </div>
-              <button
-                type="submit"
-                className="mt-4 bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700"
-              >
-                Create Operator
-              </button>
-            </form>
-          )}
-
-          {loading ? (
-            <div className="text-center py-8" role="status" aria-live="polite">
-              Loading operators...
-            </div>
-          ) : (
-            <div className="space-y-3" role="list">
-              {operators.map((operator) => (
-                <div
-                  key={operator.id}
-                  className="border rounded p-4 flex justify-between items-center"
-                  role="listitem"
-                >
-                  <div>
-                    <h3 className="font-bold">{operator.full_name || operator.email}</h3>
-                    <p className="text-sm text-gray-600">Email: {operator.email}</p>
-                    <p className="text-sm text-gray-600">
-                      Region: {operator.region || "Not assigned"}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="text-blue-600 hover:text-blue-800" aria-label={`Edit ${operator.full_name || "operator"}`}>
-                      Edit
-                    </button>
-                    <button className="text-red-600 hover:text-red-800" aria-label={`Deactivate ${operator.full_name || "operator"}`}>
-                      Deactivate
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+    <div className="space-y-6">
+        <div className="flex justify-between items-center">
+            <h3 className="text-xl font-bold text-gray-800">System Users (Operators)</h3>
+            <button onClick={() => navigate("/operators/create")} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700"><i className="fa-solid fa-plus"></i> Add Operator</button>
         </div>
-      </div>
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-left text-sm">
+                <thead className="bg-gray-800 text-white uppercase text-xs">
+                    <tr>
+                        <th className="px-6 py-3">Name</th>
+                        <th className="px-6 py-3">Role</th>
+                        <th className="px-6 py-3">District/Area</th>
+                        <th className="px-6 py-3">Status</th>
+                        <th className="px-6 py-3 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                    {loading ? (
+                        <tr><td colSpan={5} className="text-center p-8">Loading...</td></tr>
+                    ) : (
+                        operators.map(op => (
+                            <tr key={op._id}>
+                                <td className="px-6 py-4 font-bold">{op.first_name} {op.last_name}</td>
+                                <td className="px-6 py-4">{op.role}</td>
+                                <td className="px-6 py-4">{op.assigned_district || 'N/A'}</td>
+                                <td className="px-6 py-4">{getStatusBadge(op.status)}</td>
+                                <td className="px-6 py-4 text-right text-gray-500">
+                                    <button onClick={() => handleToggleStatus(op.operator_id, op.status)} className="text-gray-500 hover:text-gray-700">
+                                        <i className="fa-solid fa-gear cursor-pointer"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        ))
+                    )}
+                </tbody>
+            </table>
+        </div>
     </div>
   );
 }

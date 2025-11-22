@@ -364,37 +364,30 @@ class FarmerService:
     async def update_documents(
         self,
         farmer_id: str,
-        document_paths: Dict[str, str]
-    ) -> Optional[FarmerOut]:
+        update_data: dict,
+    ) -> dict:
         """
-        Update farmer document file paths.
-        
-        Args:
-            farmer_id: Farmer ID
-            document_paths: Dict of document types to file paths
-        
-        Returns:
-            Optional[FarmerOut]: Updated farmer
+        Update farmer's documents (photo or identification documents).
+        Handles the case where 'documents' field is null.
         """
-        now = datetime.now(datetime.timezone.utc) if hasattr(datetime, 'timezone') else datetime.utcnow()
+        # First, ensure the documents field exists and is not null
+        await self.collection.update_one(
+            {"farmer_id": farmer_id, "$or": [{"documents": None}, {"documents": {"$exists": False}}]},
+            {"$set": {"documents": {}}},
+            upsert=False
+        )
         
-        # Build nested update for documents
-        update_fields = {
-            f"documents.{key}": value 
-            for key, value in document_paths.items()
-        }
-        update_fields["updated_at"] = now
-        
+        # Now perform the actual update using dot notation
         result = await self.collection.update_one(
             {"farmer_id": farmer_id},
-            {"$set": update_fields}
+            {"$set": update_data},
+            upsert=False
         )
         
         if result.matched_count == 0:
-            return None
+            raise ValueError(f"Farmer {farmer_id} not found")
         
-        updated = await self.collection.find_one({"farmer_id": farmer_id})
-        return FarmerOut.from_mongo(updated)
+        return {"success": True, "modified": result.modified_count}
     
     # =======================================================
     # 4️⃣ DELETE Operations

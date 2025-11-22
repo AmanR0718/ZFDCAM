@@ -1,10 +1,12 @@
-// src/pages/FarmerRegistrationWizard/index.tsx
+// src/pages/FarmerRegistration/index.tsx
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import Step1Personal from "./Step1Personal";
 import Step2Address from "./Step2Address";
 import Step3Farm from "./Step3Farm";
 import Step4Preview from "./Step4Preview";
+import Step5PhotoUpload from "./Step5PhotoUpload";
+import Step6DocumentUpload from "./Step6DocumentUpload";
+import Step7Completion from "./Step7Completion";
 
 export type WizardState = {
   personal: {
@@ -16,6 +18,8 @@ export type WizardState = {
     nrc?: string;
     date_of_birth?: string;
     gender?: string;
+    marital_status?: string;
+    education_level?: string;
     ethnic_group?: string;
   };
   address: {
@@ -29,27 +33,41 @@ export type WizardState = {
   };
   farm?: {
     size_hectares?: string;
-    crops?: string;
-    livestock?: string;
-    has_irrigation?: boolean;
-    years_farming?: string;
+    land_tenure?: string;
+    soil_type?: string;
+    crops?: string[];
+    livestock?: {
+        cattle: number;
+        goats: number;
+        pigs: number;
+        poultry: number;
+    };
     household_size?: string;
-    dependents?: string;
     primary_income?: string;
+    financial_services?: string[];
+    vulnerability?: string[];
   };
 };
 
 const initialState: WizardState = {
   personal: {},
   address: {},
-  farm: {},
+  farm: {
+    crops: [],
+    livestock: { cattle: 0, goats: 0, pigs: 0, poultry: 0 },
+    financial_services: [],
+    vulnerability: [],
+  },
 };
 
+const stepTitles = ["Bio-Data", "Location", "Farm Profile", "Socio-Econ", "Photo", "Documents", "Complete"];
+
 export default function FarmerRegistrationWizard() {
-  const navigate = useNavigate();
-  const [step, setStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(1);
   const [form, setForm] = useState<WizardState>(initialState);
   const [loading, setLoading] = useState(false);
+  const [newFarmerId, setNewFarmerId] = useState<string | null>(null);
+  const [farmerName, setFarmerName] = useState<string>("");
 
   const update = <K extends keyof WizardState>(
     section: K,
@@ -61,111 +79,102 @@ export default function FarmerRegistrationWizard() {
     }));
   };
 
-  return (
-    <div
-      style={{ minHeight: "100vh", padding: 20, background: "#f7f7f7" }}
-    >
-      <div
-        style={{
-          maxWidth: 900,
-          margin: "0 auto",
-          background: "#fff",
-          padding: 24,
-          borderRadius: 8,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-        }}
-      >
-        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: "15px" }}>
-          <button
-            onClick={() => {
-              if (step === 1) {
-                navigate("/");
-              } else {
-                setStep(step - 1);
-              }
-            }}
-            style={{
-              backgroundColor: "#2563EB",
-              color: "white",
-              border: "none",
-              padding: "8px 16px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontWeight: "bold",
-            }}
-          >
-            ← Back
-          </button>
-          <div>
-            <h2 style={{ margin: 0 }}>New Farmer — Registration</h2>
-            <div style={{ marginTop: 8, color: "#666" }}>Step {step} / 4</div>
-          </div>
-        </div>
+  const handleStep6Complete = () => {
+    setCurrentStep(7);
+  };
 
-        {/* Step 1: Personal Information */}
-        {step === 1 && (
+  const getWizardStepClass = (step: number) => {
+    if (step < currentStep) return "wizard-done";
+    if (step === currentStep) return "wizard-active";
+    return "wizard-pending";
+  }
+
+  const visibleSteps = 4;
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      {/* Wizard Header */}
+      {currentStep <= visibleSteps && (
+        <div className="flex justify-between items-center mb-8 px-8">
+          {[...Array(visibleSteps)].map((_, i) => (
+            <React.Fragment key={i}>
+              <div className="flex flex-col items-center">
+                <div className={`wizard-step ${getWizardStepClass(i + 1)}`}>{i + 1}</div>
+                <span className={`text-xs mt-2 font-bold ${i + 1 <= currentStep ? 'text-green-800' : 'text-gray-500'}`}>{stepTitles[i]}</span>
+              </div>
+              {i < visibleSteps - 1 && <div className="h-1 bg-gray-300 flex-1 mx-2 mt-[-20px]"></div>}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+
+
+      {/* Form Container */}
+      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
+        {/* Step Content */}
+        {currentStep === 1 && (
           <Step1Personal
             data={form.personal}
             onNext={(vals: WizardState["personal"]) => {
               update("personal", vals);
-              setStep(2);
+              setCurrentStep(2);
             }}
           />
         )}
-
-        {/* Step 2: Address Information */}
-        {step === 2 && (
+        {currentStep === 2 && (
           <Step2Address
             data={form.address}
-            onBack={() => setStep(1)}
+            onBack={() => setCurrentStep(1)}
             onNext={(vals: WizardState["address"]) => {
               update("address", vals);
-              setStep(3);
+              setCurrentStep(3);
             }}
           />
         )}
-
-        {/* Step 3: Farm Information */}
-        {step === 3 && (
+        {currentStep === 3 && (
           <Step3Farm
             data={form.farm || {}}
-            onBack={() => setStep(2)}
+            onBack={() => setCurrentStep(2)}
             onNext={(vals: WizardState["farm"]) => {
               update("farm", vals);
-              setStep(4);
+              setCurrentStep(4);
             }}
           />
         )}
-
-        {/* Step 4: Preview & Submit */}
-        {step === 4 && (
+        {currentStep === 4 && (
           <Step4Preview
             data={form}
-            onBack={() => setStep(3)}
+            onBack={() => setCurrentStep(3)}
             onSubmitStart={() => setLoading(true)}
             onSubmitEnd={() => setLoading(false)}
+            onSuccess={(farmerId) => {
+              setNewFarmerId(farmerId);
+              setFarmerName(`${form.personal.first_name} ${form.personal.last_name}`);
+              setCurrentStep(5);
+            }}
           />
         )}
+        {currentStep === 5 && newFarmerId && (
+          <Step5PhotoUpload
+            farmerId={newFarmerId}
+            onBack={() => setCurrentStep(4)}
+            onNext={() => setCurrentStep(6)}
+          />
+        )}
+        {currentStep === 6 && newFarmerId && (
+          <Step6DocumentUpload
+            farmerId={newFarmerId}
+            onBack={() => setCurrentStep(5)}
+            onComplete={handleStep6Complete}
+          />
+        )}
+        {currentStep === 7 && newFarmerId && (
+          <Step7Completion farmerId={newFarmerId} farmerName={farmerName} />
+        )}
 
-        {/* Footer Tip */}
-        <div style={{ marginTop: 16, color: "#999", fontSize: 13 }}>
-          Tip: Fields marked with * are required. Use the back button to edit
-          previous steps.
-        </div>
-
-        {/* Loading indicator */}
         {loading && (
-          <div
-            style={{
-              marginTop: 16,
-              padding: 12,
-              background: "#e3f2fd",
-              color: "#1976d2",
-              borderRadius: 6,
-              textAlign: "center",
-            }}
-          >
-            ⏳ Submitting farmer registration...
+          <div className="mt-4 p-3 bg-blue-50 text-blue-700 rounded-lg text-center">
+            Submitting farmer registration...
           </div>
         )}
       </div>

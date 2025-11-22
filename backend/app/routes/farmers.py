@@ -20,8 +20,6 @@ from fastapi import (
     HTTPException,
     status,
     BackgroundTasks,
-    File,
-    UploadFile,
     Query,
 )
 from typing import Optional, List
@@ -44,6 +42,10 @@ from app.models.farmer import (
 from app.services.farmer_service import FarmerService
 from app.utils.security import verify_qr_signature, generate_qr_data
 from app.config import settings
+from pathlib import Path
+import time
+from datetime import datetime
+from fastapi import UploadFile, File, HTTPException, Depends
 
 
 router = APIRouter(prefix="/farmers", tags=["Farmers"])
@@ -462,9 +464,6 @@ async def upload_farmer_photo(
     }
     ```
     """
-    import os
-    from pathlib import Path
-    
     # Validate file type
     allowed_extensions = settings.ALLOWED_IMAGE_EXTENSIONS
     file_ext = file.filename.split('.')[-1].lower()
@@ -642,3 +641,74 @@ async def get_farmer_statistics(
     stats = await farmer_service.get_statistics()
     
     return stats
+
+
+# =======================================================
+# UPLOAD Document
+# =======================================================
+@router.post("/{farmer_id}/documents/{doc_type}")
+async def upload_farmer_document(
+    farmer_id: str,
+    doc_type: str,
+    file: UploadFile = File(...),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """Upload an identification document for a farmer."""
+    from pathlib import Path
+    from datetime import datetime
+    import time
+    
+    # Validate doc_type
+    valid_doc_types = ["nrc", "land_title", "license", "certificate"]
+    if doc_type not in valid_doc_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid doc_type. Must be one of: {', '.join(valid_doc_types)}"
+        )
+    
+    try:
+        # Save file
+        upload_dir = Path("uploads/farmers/documents")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = int(time.time())
+        file_ext = Path(file.filename or "").suffix or ".jpg"
+        file_path = upload_dir / f"{farmer_id}_{doc_type}_{timestamp}{file_ext}"
+        
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # Update farmer record
+        doc_data = {
+            "doc_type": doc_type,
+            "file_path": str(file_path),
+            "uploaded_at": datetime.utcnow().isoformat()
+        }
+        
+        # Initialize identification_documents if needed
+        await db.farmers.update_one(
+            {"farmer_id": farmer_id},
+            {"$setOnInsert": {"identification_documents": []}},
+            upsert=False
+        )
+        
+        # Add document
+        result = await db.farmers.update_one(
+            {"farmer_id": farmer_id},
+            {"$push": {"identification_documents": doc_data}}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Farmer not found")
+        
+        return {
+            "message": f"{doc_type} uploaded successfully",
+            "file_path": str(file_path),
+            "doc_type": doc_type
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Document upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
